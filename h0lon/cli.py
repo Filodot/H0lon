@@ -461,5 +461,41 @@ def status(
         print_status(info, console=console)
 
 
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
+@app.command()
+def serve(
+    ctx: typer.Context,
+    host: Annotated[
+        str, typer.Option("--host", help="Адрес, на котором слушать (по умолчанию только этот ПК).")
+    ] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", help="Порт веб-интерфейса.")] = 8765,
+    open_browser: Annotated[
+        bool, typer.Option("--open", help="Открыть интерфейс в браузере после запуска.")
+    ] = False,
+) -> None:
+    """Запустить локальный веб-интерфейс (темы, источники, проверка, сборка)."""
+    from h0lon.web.app import serve as run_server
+
+    settings = _settings(ctx)
+    if not 1 <= port <= 65535:
+        err_console.print("[red]--port: допустимо 1–65535[/red]")
+        raise typer.Exit(2)
+    if host.lower() not in LOOPBACK_HOSTS:
+        err_console.print(
+            "[yellow]Предупреждение:[/yellow] интерфейс без авторизации — "
+            "не открывайте его в сеть: любой, кто достучится до этого порта, "
+            "сможет запускать агентов и читать ваши материалы."
+        )
+    shown = "127.0.0.1" if host in ("", "0.0.0.0") else f"[{host}]" if ":" in host else host
+    console.print(f"H0lon: [bold]http://{shown}:{port}/[/bold] — остановить: Ctrl+C")
+    try:
+        run_server(settings, host=host, port=port, open_browser=open_browser)
+    except OSError as exc:
+        err_console.print(f"[red]Ошибка:[/red] {escape(str(exc))}")
+        raise typer.Exit(2) from exc
+
+
 if __name__ == "__main__":
     app()

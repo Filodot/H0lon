@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} — H0lon{% endblock %}
+{% block content %}
+<section class="card error-card">
+  <p class="error-code">{{ status }}</p>
+  <h1>{{ title }}</h1>
+  {% if message %}<p>{{ message }}</p>{% endif %}
+  {% if hint %}<p class="muted">{{ hint }}</p>{% endif %}
+  <p><a class="btn" href="{{ back_url }}">{{ back_label }}</a></p>
+</section>
+{% endblock %}

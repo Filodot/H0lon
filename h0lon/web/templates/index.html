@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Темы — H0lon{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1>Темы</h1>
+  <p class="muted">Рабочие области: <code>{{ root }}</code></p>
+</header>
+
+{% if not root_exists %}
+<div class="flash flash-info">Каталога рабочих областей ещё нет. Он появится вместе с первой темой.</div>
+{% endif %}
+
+<section class="card" id="new-topic">
+  <h2>Новая тема</h2>
+  <form method="post" action="/topics" class="form-grid" data-busy="Создаём тему…">
+    <label>Название темы
+      <input type="text" name="title" required maxlength="200" placeholder="Например: Метрические методы классификации" autocomplete="off">
+    </label>
+    <label>Курс
+      <input type="text" name="course" required maxlength="120" list="course-names" placeholder="Например: Машинное обучение" autocomplete="off">
+      <datalist id="course-names">
+        {% for name in course_names %}<option value="{{ name }}"></option>{% endfor %}
+      </datalist>
+    </label>
+    <details class="more">
+      <summary>Имя каталога (необязательно)</summary>
+      <label>Имя по-английски
+        <input type="text" name="slug" maxlength="80" placeholder="по умолчанию — из названия" autocomplete="off">
+      </label>
+    </details>
+    <div class="actions"><button class="btn btn-primary" type="submit">Создать тему</button></div>
+  </form>
+</section>
+
+{% for g in groups %}
+<section class="course">
+  <h2>{{ g.title }}</h2>
+  <div class="cards">
+    {% for t in g.topics %}
+    <article class="topic-card{% if t.error %} topic-card-bad{% endif %}">
+      <h3><a href="{{ t.url }}">{{ t.title }}</a></h3>
+      {% if t.error %}
+      <p class="status status-bad">Не удалось прочитать topic.yaml: {{ t.error }}</p>
+      {% else %}
+      <p class="chips">
+        <span class="chip"><span class="chip-k">Источников</span> {{ t.sources }}</span>
+        <span class="badge badge-{{ t.extraction_class }}">{{ t.extraction }}</span>
+        {% if t.master_pdf %}<span class="badge badge-ok">master.pdf</span>{% else %}<span class="badge badge-muted">не собрано</span>{% endif %}
+        {% if t.job %}<span class="badge badge-running">{{ t.job }}…</span>{% endif %}
+      </p>
+      {% if t.master_pdf %}<p class="muted small">Последняя сборка: {{ t.built }}</p>{% endif %}
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% else %}
+<section class="card empty">
+  <p>Тем пока нет. Создайте первую выше, затем добавьте в неё источники: PDF, слайды, документы, ссылки.</p>
+</section>
+{% endfor %}
+{% endblock %}

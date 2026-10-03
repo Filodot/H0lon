@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Проверка окружения — H0lon{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1>Проверка окружения</h1>
+  <p class="muted">Конфигурация: <code>{{ config }}</code></p>
+</header>
+
+{% if failed %}
+<div class="flash flash-error">Не пройдено обязательных проверок: {{ failed|length }} ({{ failed|join(', ') }}).</div>
+{% else %}
+<div class="flash flash-ok">Все обязательные проверки пройдены — можно работать.{% if warnings %} Предупреждений: {{ warnings }}.{% endif %}</div>
+{% endif %}
+
+<section class="card">
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Статус</th><th>Проверка</th><th>Подробности</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td data-label="Статус"><span class="badge badge-{{ r.class }}">{{ r.label }}</span></td>
+          <td data-label="Проверка"><div><span class="strong">{{ r.title }}</span>{% if r.required %} <span class="muted" title="Обязательная проверка">*</span>{% endif %}</div></td>
+          <td data-label="Подробности"><div>
+            {{ r.detail }}
+            {% if r.hint %}<div class="hint">Что сделать: {{ r.hint }}</div>{% endif %}
+          </div></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="muted small">* — обязательная проверка. Рабочие области: <code>{{ workspaces }}</code>; служебные файлы: <code>{{ state_dir }}</code>.</p>
+  <p>
+    <a class="btn" href="/doctor" data-busy-link="Идёт проверка окружения…">Проверить заново</a>
+    {% if no_auth %}
+    <a class="btn btn-quiet" href="/doctor" data-busy-link="Идёт проверка окружения…">С проверкой входа агентов</a>
+    {% else %}
+    <a class="btn btn-quiet" href="/doctor?no_auth=1" data-busy-link="Идёт проверка окружения…">Без проверки входа агентов (быстрее)</a>
+    {% endif %}
+  </p>
+</section>
+{% endblock %}

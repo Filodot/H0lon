@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chips %}
+{% block title %}{{ record.id }} · {{ record.title }} — H0lon{% endblock %}
+{% block body_class %}page-review{% endblock %}
+{% block content %}
+<nav class="crumbs" aria-label="Навигация"><a href="/">Темы</a><span aria-hidden="true">/</span><a href="{{ ref.url }}">{{ title }}</a><span aria-hidden="true">/</span><span>Источник {{ record.id }}</span></nav>
+
+<header class="page-head review-head">
+  <div class="review-title">
+    <h1><span class="mono">{{ record.id }}</span> {{ record.title }}</h1>
+    <p class="chips">
+      <span class="badge badge-{{ record.status_class }}">{{ record.status_label }}</span>
+      <span class="chip"><span class="chip-k">Вид</span> {{ record.kind_label }}</span>
+      <span class="chip"><span class="chip-k">Объём</span> {{ record.volume }}</span>
+    </p>
+  </div>
+  <div class="review-actions">
+    <p class="links">
+      {% if neighbours.prev %}<a class="btn btn-sm btn-quiet" href="{{ ref.url }}/source/{{ neighbours.prev }}">← {{ neighbours.prev }}</a>{% endif %}
+      {% if neighbours.next %}<a class="btn btn-sm btn-quiet" href="{{ ref.url }}/source/{{ neighbours.next }}">{{ neighbours.next }} →</a>{% endif %}
+      <a class="btn btn-sm btn-quiet" href="{{ ref.url }}">К теме</a>
+    </p>
+    <form method="post" action="{{ ref.url }}/approve" data-busy="Одобряем…">
+      <button class="btn btn-primary" type="submit"{% if busy or not can_approve %} disabled{% endif %}>Одобрить извлечение темы</button>
+      {% if not can_approve %}<span class="muted small">{{ approve_reason }}</span>
+      {% elif not gate_enabled %}<span class="muted small">Review gate выключен: одобрение не обязательно.</span>{% endif %}
+    </form>
+  </div>
+</header>
+
+<section class="card signals">
+  <h2 class="sr-only">Сигналы качества</h2>
+  {% if record.signals %}<p class="chips">{{ chips(record.signals) }}</p>{% endif %}
+  {% if record.error %}<div class="note note-bad">{{ record.error }}</div>{% endif %}
+  {% if notes %}
+  <p class="strong">Что стоит проверить:</p>
+  <ul class="notes">{% for n in notes %}<li class="note note-warn">{{ n }}</li>{% endfor %}</ul>
+  {% else %}
+  <p class="muted small">Замечаний к качеству извлечения нет.</p>
+  {% endif %}
+  {% if quality_items %}
+  <details class="more">
+    <summary>Все сигналы качества</summary>
+    <dl class="kv">
+      {% for key, value in quality_items %}<dt>{{ key }}</dt><dd>{{ value }}</dd>{% endfor %}
+    </dl>
+  </details>
+  {% endif %}
+</section>
+
+<div class="review" data-review data-pane="doc">
+  <div class="review-tabs" role="tablist" aria-label="Панели">
+    <button type="button" role="tab" class="tab" data-pane-tab="orig" aria-selected="false">Оригинал</button>
+    <button type="button" role="tab" class="tab" data-pane-tab="doc" aria-selected="true">Source Doc</button>
+  </div>
+
+  <section class="pane pane-orig" aria-label="Оригинал">
+    <div class="pane-head">
+      <h2>Оригинал</h2>
+      {% if pages %}<span class="muted small">страницы, распознанные агентом: {{ pages|length }}</span>{% endif %}
+      {% if original %}<a class="btn btn-sm btn-quiet" href="{{ original.url }}" target="_blank" rel="noopener">Открыть файл</a>{% endif %}
+    </div>
+    <div class="pane-body" data-orig-body>
+      {% if pages %}
+      <div class="pageimgs">
+        {% for p in pages %}
+        <figure class="pageimg" id="pg-{{ p.number }}" data-page="{{ p.number }}">
+          <figcaption>Страница {{ p.number }}</figcaption>
+          <img src="{{ p.url }}" alt="Страница {{ p.number }}" loading="lazy">
+        </figure>
+        {% endfor %}
+      </div>
+      <p class="muted small">Здесь только страницы, которые читал агент (формулы, сканы, графика). Остальные — в исходном файле.</p>
+      {% elif original and original.type == 'pdf' %}
+      <iframe class="orig-frame" src="{{ original.url }}" title="{{ original.name }}"></iframe>
+      {% elif original and original.type == 'image' %}
+      <img class="orig-image" src="{{ original.url }}" alt="{{ original.name }}">
+      {% elif original %}
+      <p>Для этого вида источника нет картинок страниц. <a href="{{ original.url }}">Скачать исходный файл ({{ original.name }})</a>.</p>
+      {% else %}
+      <p class="muted">Исходного файла нет: источник добавлен ссылкой, текст сохранён в Source Doc.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="pane pane-doc" aria-label="Source Doc">
+    <div class="pane-head">
+      <h2>Source Doc</h2>
+      <span class="muted small">блоки и формулы источника</span>
+      {% if doc_html %}<label class="toggle js-only"><input type="checkbox" data-toggle-blocks> ID блоков</label>{% endif %}
+      {% if has_doc %}<a class="btn btn-sm btn-quiet" href="{{ ref.file_url('extracted/' ~ record.id ~ '/source.md') }}" target="_blank" rel="noopener">source.md</a>{% endif %}
+    </div>
+    <div class="pane-body" data-doc-body>
+      {% if doc_html %}
+      <article class="srcdoc">{{ doc_html|safe }}</article>
+      {% elif doc_error %}
+      <div class="flash flash-error">{{ doc_error }}</div>
+      {% if raw_text %}<pre class="rawdoc">{{ raw_text }}</pre>{% endif %}
+      {% else %}
+      <p class="muted">Source Doc ещё нет: источник не извлечён. Запустите «Извлечь» на странице темы.</p>
+      {% endif %}
+    </div>
+  </section>
+</div>
+{% endblock %}

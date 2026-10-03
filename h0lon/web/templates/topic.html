@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chips, result_rows %}
+{% block title %}{{ title }} — H0lon{% endblock %}
+{% block content %}
+<nav class="crumbs" aria-label="Навигация"><a href="/">Темы</a><span aria-hidden="true">/</span><span>{{ course_title }}</span></nav>
+<header class="page-head">
+  <h1>{{ title }}</h1>
+  <p class="muted small path">{{ path }}</p>
+</header>
+
+<div id="topic" data-topic-url="{{ ref.url }}">
+
+  {% if job %}
+  <section class="card job" id="job" data-job-id="{{ job.id }}" data-job-active="{{ 1 if job.active else 0 }}" data-next="{{ job.total }}">
+    <div class="job-head" data-refresh="job-head">
+      <h2>{{ job.title }}</h2>
+      <span class="badge badge-{{ job.status }}" data-role="badge">{{ job.label }}</span>
+      <span class="muted small">{{ job.started }}{% if job.duration != '—' %} · {{ job.duration }}{% endif %}</span>
+      {% if job.active %}
+      <form method="post" action="/jobs/{{ job.id }}/cancel" class="job-cancel" data-confirm="Остановить задачу? Выполняемая стадия будет завершена.">
+        <button class="btn btn-sm" type="submit"{% if job.cancel_requested %} disabled{% endif %}>{{ 'Остановка запрошена' if job.cancel_requested else 'Остановить' }}</button>
+      </form>
+      {% endif %}
+    </div>
+    <pre class="log" data-role="log" tabindex="0" aria-label="Журнал задачи">{{ job.log }}</pre>
+    {% if job.shortened %}<p class="muted small">Показаны последние строки журнала; всего событий: {{ job.total }}.</p>{% endif %}
+    <div data-refresh="job-result">
+      {% if not job.active %}
+      <p class="status status-{{ 'ok' if job.status == 'done' else 'bad' if job.status == 'failed' else 'warn' }}">{{ job.message }}</p>
+      {% if job.rows %}{{ result_rows(job.rows) }}{% endif %}
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="card step" id="sources" data-refresh="sources">
+    <h2>Источники</h2>
+    {% if rows %}
+    <div class="table-wrap">
+      <table class="table responsive">
+        <thead><tr><th>ID</th><th>Вид</th><th>Название</th><th>Объём</th><th>Статус</th><th>Качество</th><th></th></tr></thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td data-label="ID"><span class="mono strong">{{ r.id }}</span></td>
+            <td data-label="Вид"><span title="{{ r.kind }}">{{ r.kind_label }}</span></td>
+            <td data-label="Название"><div>
+              <div class="strong">{{ r.title }}</div>
+              {% if r.url and (r.url.startswith('http://') or r.url.startswith('https://')) %}
+              <div class="muted small clip"><a href="{{ r.url }}" target="_blank" rel="noopener noreferrer">{{ r.url }}</a></div>
+              {% elif r.original %}<div class="muted small clip">{{ r.original }}</div>{% endif %}
+            </div></td>
+            <td data-label="Объём">{{ r.volume }}</td>
+            <td data-label="Статус"><div>
+              <span class="badge badge-{{ r.status_class }}">{{ r.status_label }}</span>
+              {% if r.error %}<div class="note note-bad">{{ r.error }}</div>{% endif %}
+            </div></td>
+            <td data-label="Качество"><div class="chips">{{ chips(r.signals) }}{% if not r.signals %}<span class="muted">—</span>{% endif %}</div></td>
+            <td class="actions-cell">
+              <div class="btn-stack">
+                {% if r.review_url %}<a class="btn btn-sm" href="{{ r.review_url }}">Проверить</a>{% endif %}
+                {% if r.file_url %}<a class="btn btn-sm btn-quiet" href="{{ r.file_url }}" target="_blank" rel="noopener">Оригинал</a>{% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted">Источников пока нет. Добавьте файлы или ссылки.</p>
+    {% endif %}
+
+    <form class="add-form" method="post" action="{{ ref.url }}/sources" enctype="multipart/form-data" data-busy="Добавляем источники…" data-add-form>
+      <div class="dropzone" data-dropzone>
+        <input type="file" name="files" id="files" multiple class="visually-hidden"{% if busy %} disabled{% endif %}>
+        <label for="files" class="dropzone-label">
+          <strong>Перетащите файлы сюда</strong> или нажмите, чтобы выбрать
+          <span class="muted small">PDF, PPTX, DOCX, Markdown, .tex, HTML, фото рукописи</span>
+        </label>
+        <ul class="file-list" data-file-list></ul>
+      </div>
+      <label>Ссылки (по одной в строке)
+        <textarea name="links" rows="3" placeholder="https://ru.wikipedia.org/wiki/…" spellcheck="false"{% if busy %} disabled{% endif %}></textarea>
+      </label>
+      <div class="row">
+        <label>Вид источника
+          <select name="kind"{% if busy %} disabled{% endif %}>
+            <option value="">определить автоматически</option>
+            {% for value, label in kinds %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+          </select>
+        </label>
+        <button class="btn btn-primary" type="submit"{% if busy %} disabled{% endif %}>Добавить</button>
+      </div>
+      <p class="muted small">Рукопись и фото укажите видом «рукопись»: печатный скан от рукописи автоматически не отличить.{% if busy %} Пока идёт задача, источники добавить нельзя.{% endif %}</p>
+    </form>
+  </section>
+
+  <section class="card step" id="extract" data-refresh="extract">
+    <h2>Извлечение</h2>
+    <p class="muted">Источники превращаются в Source Docs: текст, формулы, блоки и аннотация. Сложные страницы распознаёт агент.</p>
+    <form method="post" action="{{ ref.url }}/extract" data-busy="Подождите…">
+      <div class="opts">
+        <label class="check"><input type="checkbox" name="no_vision" value="1"> Без распознавания агентом (только код)</label>
+        <label class="check"><input type="checkbox" name="force" value="1"> Игнорировать кэш</label>
+        <label>Агент
+          <select name="backend">{% for value, label in backends %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
+        </label>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" type="submit"{% if busy or not rows %} disabled{% endif %}>Извлечь</button>
+        <button class="btn" type="submit" formaction="{{ ref.url }}/plan"{% if not rows %} disabled{% endif %}>Показать план</button>
+      </div>
+    </form>
+    {% if plan %}
+    <h3>План извлечения</h3>
+    <div class="table-wrap">
+      <table class="table responsive">
+        <thead><tr><th>Источник</th><th>Страниц</th><th>Агентом</th><th>Прогонов</th><th>Заметки</th></tr></thead>
+        <tbody>
+          {% for p in plan.rows %}
+          <tr>
+            <td data-label="Источник"><span class="mono strong">{{ p.id }}</span></td>
+            <td data-label="Страниц">{{ p.pages }}</td>
+            <td data-label="Агентом">{{ p.vision }}</td>
+            <td data-label="Прогонов">{{ p.runs }}</td>
+            <td data-label="Заметки"><div>{% for n in p.notes %}<div class="small">{{ n }}</div>{% endfor %}</div></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot><tr><th>Итого</th><td>{{ plan.pages }}</td><td>{{ plan.vision }}</td><td>{{ plan.runs }}</td><td></td></tr></tfoot>
+      </table>
+    </div>
+    <p class="muted small">
+      {% if plan.runs %}Прогонов агента: {{ plan.runs }}; параллельно до {{ parallel }}. Ориентир по времени: {{ plan.eta }} (3–6 минут на прогон).
+      {% else %}Агент не понадобится: всё извлекается кодом или берётся из кэша.{% endif %}
+    </p>
+    {% endif %}
+  </section>
+
+  <section class="card step" id="review" data-refresh="review">
+    <h2>Проверка</h2>
+    <form method="post" action="{{ ref.url }}/review-gate" class="gate-form">
+      <input type="hidden" name="enabled" value="{{ '0' if gate.enabled else '1' }}">
+      <button type="submit" class="switch" role="switch" aria-checked="{{ 'true' if gate.enabled else 'false' }}">
+        <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+        <span class="switch-text">Review gate {{ 'включён' if gate.enabled else 'выключен' }}</span>
+      </button>
+    </form>
+    <p class="muted small">Перед сборкой вы просматриваете извлечённые Source Docs и одобряете их. Выключайте для стабильных материалов, где извлечение уже проверено; при замечаниях к качеству источников лучше оставить включённым.{% if gate.explicit is none %} Сейчас значение берётся из настроек (general.review_gate).{% endif %}</p>
+    <p class="status status-{{ gate.level }}">{{ gate.text }}</p>
+    {% if gate.flagged %}
+    <p class="small">Что проверить в первую очередь:
+      {% for sid, notes, url in gate.flagged %}<a href="{{ url }}">{{ sid }}</a>{% if notes %} (замечаний: {{ notes }}){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}.
+    </p>
+    {% endif %}
+    <form method="post" action="{{ ref.url }}/approve" class="actions" data-busy="Одобряем…">
+      <button class="btn btn-primary" type="submit"{% if busy or not can_approve %} disabled{% endif %}>Одобрить извлечение</button>
+      {% if not can_approve %}<span class="muted small">{{ approve_reason }}</span>{% endif %}
+    </form>
+  </section>
+
+  <section class="card step" id="build" data-refresh="build">
+    <h2>Сборка</h2>
+    <div class="table-wrap">
+      <table class="table responsive stages">
+        <thead><tr><th>Стадия</th><th>Состояние</th><th>Прогонов агента</th><th>Время</th></tr></thead>
+        <tbody>
+          {% for s in stages %}
+          <tr>
+            <td data-label="Стадия">{{ s.title }}</td>
+            <td data-label="Состояние"><span class="badge badge-{{ s.state_class }}">{{ s.state }}</span></td>
+            <td data-label="Прогонов агента">{{ s.agent_runs if s.agent_runs is not none else '—' }}</td>
+            <td data-label="Время">{{ s.duration }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if coverage %}
+    <p class="coverage">Покрытие источников: <strong>{{ coverage.percent }}</strong>
+      <span class="muted">({{ coverage.covered }} из {{ coverage.total }} блоков, непокрытых: {{ coverage.uncovered }})</span>
+      <meter min="0" max="100" value="{{ coverage.value }}" optimum="100" low="90" high="99.9"></meter>
+    </p>
+    {% endif %}
+    <form method="post" action="{{ ref.url }}/build" data-busy="Запускаем сборку…">
+      <details class="more">
+        <summary>Параметры сборки</summary>
+        <div class="opts">
+          <label>Начать со стадии
+            <select name="from_stage">{% for value, label in stage_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
+          </label>
+          <label>Агент для синтеза
+            <select name="backend">{% for value, label in backends %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
+          </label>
+          <label class="check"><input type="checkbox" name="force" value="1"> Игнорировать кэш стадий</label>
+          <label class="check"><input type="checkbox" name="no_review" value="1"> Не останавливаться на review gate в этот раз</label>
+        </div>
+      </details>
+      <div class="actions">
+        <button class="btn btn-primary" type="submit"{% if busy or not rows %} disabled{% endif %}>Собрать</button>
+        <span class="muted small">Сборка идёт на сильном уровне агента и может занять десятки минут. Уже готовые стадии берутся из кэша.</span>
+      </div>
+    </form>
+  </section>
+
+  <section class="card step" id="result" data-refresh="result"{% if not master %} hidden{% endif %}>
+    {% if master %}
+    <h2>Результат</h2>
+    <p class="links">
+      {% if master.pdf_url %}<a class="btn btn-sm" href="{{ master.pdf_url }}" target="_blank" rel="noopener">Открыть master.pdf</a>{% endif %}
+      {% if master.md_url %}<a class="btn btn-sm btn-quiet" href="{{ master.md_url }}" target="_blank" rel="noopener">master.md</a>{% endif %}
+      {% if master.built %}<span class="muted small">Собрано {{ master.built }}</span>{% endif %}
+    </p>
+    {% if master.appendices %}
+    <p class="small">Приложения в PDF:
+      {% for url, name in master.appendices %}<a href="{{ url }}" target="_blank" rel="noopener">{{ name }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
+    </p>
+    {% endif %}
+    {% if master.pdf_url %}
+    <iframe class="pdf-frame" src="{{ master.pdf_url }}" title="master.pdf"></iframe>
+    {% else %}
+    <p class="muted">PDF не собран: есть только master.md.</p>
+    {% endif %}
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
+
+{% block overlay %}
+<div class="drop-overlay" data-drop-overlay hidden aria-hidden="true">
+  <div class="drop-overlay-box">Отпустите файлы, чтобы добавить их в тему</div>
+</div>
+{% endblock %}

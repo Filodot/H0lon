@@ -1,0 +1,18 @@
+{% macro chips(signals) -%}
+  {%- for s in signals -%}
+    <span class="chip chip-{{ s.level }}"><span class="chip-k">{{ s.label }}</span> {{ s.value }}</span>
+  {%- endfor -%}
+{%- endmacro %}
+
+{% macro result_rows(rows) -%}
+  <ul class="result-list">
+    {% for r in rows %}
+    <li>
+      <span class="badge badge-{{ r.class }}">{{ r.verdict }}</span>
+      <span class="strong">{{ r.title }}</span>
+      {% for e in r.errors %}<div class="note note-bad">{{ e }}</div>{% endfor %}
+      {% for w in r.warnings %}<div class="note note-warn">{{ w }}</div>{% endfor %}
+    </li>
+    {% endfor %}
+  </ul>
+{%- endmacro %}
