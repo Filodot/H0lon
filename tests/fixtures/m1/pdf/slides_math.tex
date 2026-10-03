@@ -1,0 +1,41 @@
+% Synthetic Beamer-like slides (454×255 pt) for tests/test_extract_slides.py, compiled with
+% XeLaTeX through h0lon.render.latex.compile_latex; the PDF next to it is committed.
+% Slide 1: title + bullets ($\bullet$ from CMSY, like Beamer); slide 2: formulas;
+% slide 3: a two-line title and text; «N/3» in the bottom right corner of every slide.
+\documentclass{article}
+\usepackage[paperwidth=454pt,paperheight=255pt,left=14pt,right=14pt,top=8pt,bottom=4pt]{geometry}
+\usepackage{fontspec}
+\IfFontExistsTF{Arial}{\setmainfont{Arial}}{\IfFontExistsTF{DejaVu Sans}{\setmainfont{DejaVu Sans}}{}}
+\usepackage{amsmath}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\newcommand{\slidetitle}[1]{{\fontsize{14.3}{17}\selectfont\bfseries #1\par}\vspace{14pt}}
+\newcommand{\slidenum}[1]{\vfill{\hfill\fontsize{10}{12}\selectfont\bfseries #1/3}}
+\begin{document}
+
+\slidetitle{Метрические методы}
+\begin{itemize}
+  \item[$\bullet$] Объекты одного класса близки друг к другу.
+  \item[$\bullet$] Похожесть задаётся расстоянием между объектами.
+  \item[$\bullet$] Классификация по ближайшим соседям.
+\end{itemize}
+\slidenum{1}
+\newpage
+
+\slidetitle{Расстояние Минковского}
+\[
+  \rho(a, b) = \Bigl(\sum_{i} |a_i - b_i|^p\Bigr)^{1/p}
+\]
+\begin{itemize}
+  \item[$\bullet$] При $p = 1$ это манхэттенское расстояние.
+  \item[$\bullet$] При $p = 2$ это евклидово расстояние $\sqrt{\sum_i (a_i - b_i)^2}$.
+\end{itemize}
+\slidenum{2}
+\newpage
+
+\slidetitle{Ядерное сглаживание\\и непараметрическая регрессия}
+Оценка плотности строится по окну вокруг точки.
+Ширина окна определяет гладкость оценки.
+\slidenum{3}
+
+\end{document}

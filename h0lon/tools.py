@@ -235,6 +235,25 @@ def resolve_agent_argv(spec: str | list[str], kind: str) -> list[str] | None:
 # ---------------------------------------------------------------- misc tools
 
 
+def find_soffice() -> Path | None:
+    """LibreOffice `soffice` (PPTX → PDF): PATH, then the standard install locations."""
+    for name in ("soffice", "libreoffice"):
+        found = which(name)
+        if found:
+            return found
+    candidates: list[Path] = []
+    if IS_WINDOWS:
+        for var in ("PROGRAMFILES", "PROGRAMFILES(X86)"):
+            root = os.environ.get(var)
+            if root:
+                candidates.append(Path(root) / "LibreOffice" / "program" / "soffice.exe")
+    elif sys.platform == "darwin":
+        candidates.append(Path("/Applications/LibreOffice.app/Contents/MacOS/soffice"))
+    else:
+        candidates += [Path("/usr/bin/soffice"), Path("/opt/libreoffice/program/soffice")]
+    return _first_existing(candidates)
+
+
 def find_simple(name: str) -> Path | None:
     """ffmpeg, ffprobe, yt-dlp, git, nvidia-smi, node, npm …"""
     return which(name)

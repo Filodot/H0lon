@@ -221,7 +221,10 @@ def add(
     if json_out:
         _print_json(report.to_dict())
     else:
-        print_sources(report.added, console=console, title="Добавлены источники")
+        if report.added:
+            print_sources(report.added, console=console, title="Добавлены источники")
+        else:
+            err_console.print("Новых источников нет.")
         for warning in report.warnings:
             err_console.print(f"[yellow]Предупреждение:[/yellow] {escape(warning)}")
     raise typer.Exit(0 if report.added or not items else 1)
@@ -234,10 +237,14 @@ def sources(
     json_out: Annotated[bool, typer.Option("--json", help="Результат в JSON.")] = False,
 ) -> None:
     """Показать источники темы и статус извлечения."""
-    from h0lon.sources.ingest import list_sources, print_sources
+    from h0lon.sources.ingest import IngestError, list_sources, print_sources
 
     settings = _settings(ctx)
-    records = list_sources(_topic(settings, topic))
+    try:
+        records = list_sources(_topic(settings, topic))
+    except (ValueError, IngestError) as exc:
+        err_console.print(f"[red]Ошибка:[/red] {escape(str(exc))}")
+        raise typer.Exit(2) from exc
     if json_out:
         _print_json([r.model_dump() for r in records])
     else:
@@ -273,18 +280,24 @@ def extract(
         raise typer.Exit(2)
     settings = _settings(ctx)
     topic_dir = _topic(settings, topic)
-    outcome = extract_topic(
-        settings,
-        topic_dir,
-        source_ids=source or None,
-        force=force,
-        use_vision=not no_vision,
-        dry_run=dry_run,
-        backend=backend,
-        on_event=None
-        if json_out
-        else (lambda msg: err_console.print(msg, style="dim", markup=False, highlight=False)),
-    )
+    from h0lon.sources.ingest import IngestError
+
+    try:
+        outcome = extract_topic(
+            settings,
+            topic_dir,
+            source_ids=source or None,
+            force=force,
+            use_vision=not no_vision,
+            dry_run=dry_run,
+            backend=backend,
+            on_event=None
+            if json_out
+            else (lambda msg: err_console.print(msg, style="dim", markup=False, highlight=False)),
+        )
+    except (ValueError, IngestError) as exc:
+        err_console.print(f"[red]Ошибка:[/red] {escape(str(exc))}")
+        raise typer.Exit(2) from exc
     if json_out:
         _print_json([item.to_dict() for item in outcome])
     elif dry_run:

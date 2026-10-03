@@ -134,6 +134,9 @@ class Extractor(Protocol):
 
     kinds: tuple[str, ...]
     version: str  # bump when the output for the same input changes
+    # Optional: prompt files the extractor uses, e.g. ("vision_pages@1.0",); part of the cache
+    # key (the pipeline reads it with getattr, default ()).
+    # prompts: tuple[str, ...]
 
     def plan(self, ctx: ExtractContext) -> ExtractPlan: ...
 
@@ -149,6 +152,9 @@ class ExtractPlan:
     pages_vision: int = 0
     agent_runs: int = 0  # vision batches + summary
     notes: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass

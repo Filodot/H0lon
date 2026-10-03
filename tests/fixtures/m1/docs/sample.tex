@@ -1,0 +1,76 @@
+% Synthetic test document for h0lon/extract/docs.py (written for the tests, no third-party text).
+\documentclass{article}
+\usepackage{amsmath,amsthm,amssymb,graphicx}
+\newtheorem{thm}{Теорема}[section]
+\newtheorem{lemma}[thm]{Лемма}
+\theoremstyle{definition}
+\newtheorem{defn}{Определение}
+\newtheorem*{remark}{Замечание}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Prob}[1]{\mathsf{P}\left(#1\right)}
+\title{Случайные величины}
+\author{Тестовый автор}
+\begin{document}
+\maketitle
+\begin{abstract}
+Учебный пример для проверки извлечения.
+\end{abstract}
+
+\section{Определения}
+
+\begin{defn}[Случайная величина]\label{def:rv}
+Отображение $X:\Omega\to\R$ называется случайной величиной, если оно измеримо.
+\end{defn}
+
+\begin{thm}[Неравенство Чебышёва]
+Для любого $\varepsilon>0$ выполнено $\Prob{|X-a|\ge\varepsilon}\le \frac{DX}{\varepsilon^2}$.
+\end{thm}
+
+\begin{proof}
+Следует из неравенства Маркова.
+\end{proof}
+
+\begin{remark}
+Замечание без номера.
+\end{remark}
+
+Функция распределения
+\begin{equation}\label{eq:cdf}
+F(x) = \Prob{X\le x},
+\end{equation}
+где $x\in\R$. Свойства:
+\begin{align}
+F(-\infty) &= 0,\\
+F(+\infty) &= 1 \nonumber
+\end{align}
+
+\subsection{Примеры}
+
+\begin{itemize}
+\item подбрасывание монеты;
+\item бросание кости.
+\end{itemize}
+
+\begin{center}
+Текст по центру.
+\end{center}
+
+\begin{table}
+\begin{tabular}{|c|c|}
+\hline
+$x$ & $P(X=x)$ \\
+\hline
+0 & 0.5 \\
+1 & 0.5 \\
+\hline
+\end{tabular}
+\caption{Закон распределения}
+\end{table}
+
+\begin{figure}
+\centering
+\includegraphics[width=4cm]{img/sample}
+\caption{Тестовый рисунок}
+\end{figure}
+
+\end{document}

@@ -18,7 +18,16 @@ from h0lon.names import slugify
 TOPIC_DIRS = ("sources", "extracted", "synthesis", "variants", "runs")
 TOPIC_FILE = "topic.yaml"
 INITIAL_COMMIT_MESSAGE = "Тема создана"
-GITIGNORE_PATTERNS = ("*.mp4", "*.mkv", "*.webm", "*.m4a", "*.wav", "*.mp3")
+GITIGNORE_PATTERNS = (
+    "*.mp4",
+    "*.mkv",
+    "*.webm",
+    "*.m4a",
+    "*.wav",
+    "*.mp3",
+    ".topic.yaml.lock",  # inter-thread/process lock of topic.yaml (h0lon.sources.ingest)
+    "sources/.incoming-*",  # partial copies of an interrupted `h0lon add`
+)
 
 _TOPIC_YAML_HEADER = (
     "# Метаданные темы H0lon. Файл ведёт приложение; review_gate: null — как в настройках.\n"

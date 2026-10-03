@@ -1,0 +1,54 @@
+% Synthetic LaTeX article for tests/test_extract_pdf.py (compiled with XeLaTeX through
+% h0lon.render.latex.compile_latex; the PDF next to it is committed for runners without TeX).
+% Page 1: prose only; page 2: display and inline formulas (CMMI/CMSY/CMEX); page 3: prose
+% with a single italic letter; a running header and page numbers on every page.
+\documentclass[12pt]{article}
+\usepackage[a4paper,margin=2cm,headheight=15pt]{geometry}
+\usepackage{fontspec}
+\IfFontExistsTF{Cambria}{\setmainfont{Cambria}}{\IfFontExistsTF{DejaVu Serif}{\setmainfont{DejaVu Serif}}{}}
+\usepackage{amsmath,amssymb}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{Численные методы. Тест-2026}
+\rhead{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+\begin{document}
+
+\section*{Введение}
+
+Этот короткий текст придуман для проверки извлечения и не взят ни из какого курса. Речь в
+нём пойдёт о линейных системах: сколько операций стоит их решение, насколько точен
+полученный ответ и как он меняется, если исходные числа слегка искажены. Почти всё здесь
+держится на разложении матрицы в произведение более простых множителей.
+
+Разложение достаточно построить один раз, а потом применять его к разным правым частям.
+Ниже мы сравним прямой и итерационный подходы, заметим, что маленький остаток ещё не
+гарантирует верного решения, и поговорим о том, зачем к задаче добавляют штрафное слагаемое.
+В конце кратко опишем, как проверять ответы на заранее подготовленных примерах.
+
+\newpage
+\section*{Нормы и пределы}
+
+Для $1 \le p < \infty$ определим векторную норму и норму Фробениуса матрицы $A = (a_{ij})$:
+\[
+  \|x\|_p = \Bigl(\sum_{i=1}^{n} |x_i|^p\Bigr)^{1/p}, \qquad
+  \|A\|_F = \sqrt{\sum_{i,j} a_{ij}^2}.
+\]
+Пусть $A \in \mathbb{R}^{n \times n}$ невырождена и $f$ непрерывна на $[0, 1]$. Тогда
+\[
+  \int_0^1 f(t)\,dt = \lim_{n \to \infty} \frac{1}{n} \sum_{k=1}^{n} f\!\left(\frac{k}{n}\right),
+  \qquad \kappa(A) = \|A\|\,\|A^{-1}\| \ge 1.
+\]
+Число обусловленности $\kappa_p(A)$ показывает, во сколько раз может вырасти относительная
+ошибка решения по сравнению с ошибкой данных.
+
+\newpage
+\section*{Заключение}
+
+Мы рассмотрели основные разложения и обсудили, когда решение системы устойчиво. Для
+решения $x$ важно не только малое значение невязки, но и обусловленность задачи. В
+следующей работе займёмся итерационными методами и сравним их скорость на больших
+разреженных матрицах из практических задач.
+
+\end{document}
