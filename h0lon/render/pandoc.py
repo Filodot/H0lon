@@ -20,7 +20,7 @@ MARKDOWN_FORMAT = (
     "+link_attributes+header_attributes+autolink_bare_uris"
 )
 # sanitize.lua acts only on HTML output and must see the document before the others.
-FILTER_NAMES = ("sanitize.lua", "blocks.lua", "srcrefs.lua", "paths.lua")
+FILTER_NAMES = ("sanitize.lua", "blocks.lua", "srcrefs.lua", "paths.lua", "textsymbols.lua")
 DEFAULT_TOC_DEPTH = 2
 PANDOC_TIMEOUT_S = 180
 

@@ -504,3 +504,19 @@ def test_html_heading_anchor_hidden_from_outline_and_default_date(pandoc: Path) 
         template=TEMPLATE_DIR / "template.html",
     )
     assert '<p class="h0-date">1 сентября 2026</p>' in dated.stdout
+
+
+def test_text_symbols_go_to_the_math_font_in_latex(pandoc: Path) -> None:
+    out = to_latex(pandoc, "Скалярное произведение ⟨x, y⟩ и множество ℝ, отображение x ↦ y.\n")
+    assert r"\texorpdfstring{\ensuremath{⟨}}{⟨}" in out
+    assert r"\ensuremath{⟩}" in out and r"\ensuremath{ℝ}" in out and r"\ensuremath{↦}" in out
+    # math and code are untouched
+    out2 = to_latex(pandoc, "$⟨a, b⟩$ и `⟨код⟩`\n")
+    assert r"\ensuremath{⟨}" not in out2
+
+
+def test_cyrillic_inside_math_goes_to_text(pandoc: Path) -> None:
+    out = to_latex(pandoc, "Среднее $x_{ср} = \\mathrm{сред. знач}$ и $a+b$.\n")
+    assert r"x_{\text{ср}}" in out
+    assert r"\mathrm{\text{сред. знач}}" in out
+    assert "a+b" in out and r"\text{a" not in out

@@ -622,3 +622,17 @@ def test_clean_block_keeps_code_fences_intact() -> None:
     # an unbalanced fence cannot swallow the rest of the master
     broken = assemble.clean_block("до\n```python\nкод без закрытия")
     assert not any(ln.startswith("```") for ln in broken.splitlines())
+
+
+def test_unnumbered_headings_for_service_sections() -> None:
+    from h0lon.synth.assemble import unnumbered_headings
+
+    md = (
+        "# Глоссарий {#sec:glossary .unnumbered}\n\n## Термины\n\n- x\n\n"
+        "## Обозначения {#notation}\n\n```\n# не заголовок\n```\n"
+    )
+    out = unnumbered_headings(md)
+    assert "# Глоссарий {#sec:glossary .unnumbered}" in out
+    assert "## Термины {.unnumbered}" in out
+    assert "## Обозначения {#notation .unnumbered}" in out
+    assert "# не заголовок\n" in out  # code block untouched

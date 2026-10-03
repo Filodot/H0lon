@@ -133,6 +133,28 @@ def _escape_text(paragraph: str) -> str:
     return _escape_unprotected(paragraph, pipes=False)
 
 
+_TEX_COMMAND_RE = re.compile(r"\\[A-Za-z]+|[_^]\{")
+
+
+def wrap_bare_math(text: str) -> str:
+    """Agent notes often hold a formula without `$` («\\rho(a, b) \\colon X \\to …»).
+
+    In a table cell or list item that is a TeX command outside math mode and breaks XeLaTeX.
+    Text with TeX commands and no `$`/backticks becomes `$…$` when its braces balance,
+    otherwise inline code (always compiles, shows exactly what was written).
+    """
+    if not text or "$" in text or "`" in text or not _TEX_COMMAND_RE.search(text):
+        return text
+    depth = 0
+    for ch in text:
+        depth += {"{": 1, "}": -1}.get(ch, 0)
+        if depth < 0:
+            break
+    if depth == 0:
+        return f"${text.strip()}$"
+    return "`" + text.strip().replace("`", "'") + "`"
+
+
 def clean_inline(value: Any, *, table: bool = False, line_start: bool = True) -> str:
     """One line of safe Markdown from an agent-written string (list item, cell, title).
 
@@ -378,6 +400,33 @@ def _front_matter(*, title: str, course: str, today: str, sources: Sequence[Sour
     return f"---\n{body}---\n"
 
 
+_HEADING_LINE_RE = re.compile(r"^(#{1,6}[ \t]+)(.*?)[ \t]*$")
+_ATTR_TAIL_RE = re.compile(r"\{([^{}]*)\}$")
+
+
+def unnumbered_headings(markdown: str) -> str:
+    """Mark every heading of a service section (introduction, glossary) `.unnumbered`.
+
+    Otherwise their subheadings continue the numbering of the last chapter («8.3 Термины»).
+    Headings inside fenced code blocks are left alone.
+    """
+    out, in_code = [], False
+    for line in markdown.split("\n"):
+        if line.lstrip().startswith(("```", "~~~")):
+            in_code = not in_code
+        m = None if in_code else _HEADING_LINE_RE.match(line)
+        if m:
+            head, text = m.groups()
+            attrs = _ATTR_TAIL_RE.search(text)
+            if attrs is None:
+                line = f"{head}{text} {{.unnumbered}}"
+            elif ".unnumbered" not in attrs.group(1) and attrs.group(1).strip() != "-":
+                inner = attrs.group(1).strip()
+                line = f"{head}{text[: attrs.start()].rstrip()} {{{inner} .unnumbered}}"
+        out.append(line)
+    return "\n".join(out)
+
+
 def _minimal_intro(title: str, sources: Sequence[SourceRecord]) -> str:
     n = len(sources)
     lines = [
@@ -461,12 +510,12 @@ def _conflicts_appendix(conflicts: Sequence[Mapping[str, Any]], links: _Links) -
             out += [f"Раздел {link}.", ""]
         variants = []
         for v in c["variants"]:
-            anchor, text = _anchor_md(v["anchor"]), clean_inline(v["text"])
+            anchor, text = _anchor_md(v["anchor"]), clean_inline(wrap_bare_math(v["text"]))
             variants.append(f"- {anchor}: {text}" if anchor and text else f"- {anchor or text}")
         if variants:
             out += [*variants, ""]
         if c["resolution"]:
-            decision = f"В тексте принят вариант: {clean_inline(c['resolution'])}."
+            decision = f"В тексте принят вариант: {clean_inline(wrap_bare_math(c['resolution']))}."
         else:
             decision = "В тексте дана нейтральная формулировка: выбрать вариант нельзя."
         if c["reason"]:
@@ -485,8 +534,8 @@ def _corrections_appendix(corrections: Sequence[Mapping[str, Any]], links: _Link
         rows.append(
             [
                 where,
-                clean_inline(c["as_written"], table=True) or "—",
-                clean_inline(c["corrected"], table=True) or "—",
+                clean_inline(wrap_bare_math(c["as_written"]), table=True) or "—",
+                clean_inline(wrap_bare_math(c["corrected"]), table=True) or "—",
                 clean_inline(c["reason"], table=True) or "—",
             ]
         )
@@ -706,7 +755,7 @@ def assemble_master(
         ).rstrip("\n")
     ]
     intro = _optional_text(ctx.synth_dir / FINAL_DIR / "intro.md")
-    parts.append(intro or _minimal_intro(title, sources))
+    parts.append(unnumbered_headings(intro) if intro else _minimal_intro(title, sources))
 
     parents = {s.parent for s in outline.sections if s.parent}
     for section in outline.sections:
@@ -714,7 +763,7 @@ def assemble_master(
 
     glossary = _optional_text(ctx.synth_dir / FINAL_DIR / "glossary.md")
     if glossary:
-        parts.append(glossary)
+        parts.append(unnumbered_headings(glossary))
 
     notes = collect_notes(ctx, outline=outline, warnings=warnings)
     links = _Links(ctx, outline)
