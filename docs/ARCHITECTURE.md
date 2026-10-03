@@ -172,6 +172,90 @@ def create_topic(settings: Settings, *, title: str, course: str, slug: str | Non
 def load_topic(path: Path) -> TopicMeta
 ```
 
+## Источники и извлечение (M1)
+
+Цель M1 — превратить текстовые источники (PDF с текстовым слоем и без, слайды PDF/PPTX, DOCX, Markdown, .tex, веб-страницы) в Source Docs (PRD 5.3): `extracted/<ID>/source.md`, `blocks.jsonl`, `summary.md`. Видео, аудио и полноценная рукопись — M5 и M4; в M1 они принимаются `h0lon add`, но `extract` их пропускает со статусом `skipped` (скан без текстового слоя обрабатывается универсальным распознаванием страниц).
+
+### Модели — `h0lon/sources/models.py`, `h0lon/extract/model.py` (готово)
+
+`SourceRecord` — запись в `topic.yaml` (`id`, `kind`, `title`, `file`, `original_name`, `url`, `sha256`, `size`, `added`, `units`, `quality`, `status`, `extracted_key`, `error`). Виды: `pdf-text`, `pdf-scan`, `handwritten`, `slides`, `video`, `audio`, `web`, `docx`, `md`, `tex`; буква id по виду — `ID_PREFIX` (H, P, S, V, A, W, D), номер — следующий свободный для буквы. `Block`, `PageImage`, `ExtractContext`, `ExtractPlan`, `ExtractOutput`, `ExtractResult`, протокол `Extractor` — см. код. `workspace.resolve_topic(settings, ref)` находит тему по пути, `<курс>/<тема>` или имени (готово); CLI-команды `add`, `sources`, `extract` уже вызывают функции ниже.
+
+### Приём — `h0lon/sources/ingest.py`
+
+```python
+class IngestError(Exception): ...          # пустой список, нет файла, неизвестный --kind
+
+@dataclass
+class IngestReport:
+    added: list[SourceRecord]; warnings: list[str]
+    def to_dict(self) -> dict: ...
+
+def detect_kind(path_or_url: str) -> SourceKind     # по расширению, содержимому и URL
+def add_sources(settings, topic_dir, items: Sequence[str], *, kind: str | None = None,
+                title: str | None = None) -> IngestReport
+def list_sources(topic_dir) -> list[SourceRecord]
+def update_source(topic_dir, record: SourceRecord) -> None     # атомарная перезапись topic.yaml
+def print_sources(records, *, console, title: str) -> None
+```
+
+- Файл копируется в `sources/<ID>_<slug>.<ext>` (slug — `names.slugify` от имени без расширения), оригинальное имя — в `original_name`; `sha256` и `size` считаются по копии. Повторное добавление файла с тем же `sha256` — предупреждение и пропуск.
+- Определение вида: `.pdf` — по профилю (медиана символов на страницу; соотношение сторон ≥ 1,3 и мало текста — `slides`; текста нет — `pdf-scan`); `.pptx` → `slides`; `.docx` → `docx`; `.md`/`.markdown`/`.txt` → `md`; `.tex` → `tex`; `.html`/`.htm` и `http(s)://` (кроме видеохостингов) → `web`; YouTube/VK/Rutube и `.mp4/.mkv/.webm/.mov` → `video`; `.mp3/.m4a/.wav/.ogg/.flac` → `audio`; `.jpg/.jpeg/.png/.heic` → `handwritten`. `--kind` перекрывает определение.
+- Ссылки на веб-страницы скачиваются сразу (HTML в `sources/W1_<slug>.html`, `url` сохраняется); ссылки на видео только записываются (`file = None`, скачивание — M5).
+- `units`: `pages` (PDF), `slides` (PPTX и слайды); `quality` на этапе приёма — `text_layer` (доля страниц с текстом), `chars_per_page` (медиана), `aspect` (ширина/высота первой страницы), `producer`.
+
+### Конвейер — `h0lon/extract/pipeline.py`
+
+```python
+def extract_topic(settings, topic_dir, *, source_ids: Sequence[str] | None = None, force=False,
+                  use_vision=True, dry_run=False, backend: str | None = None,
+                  on_event=None) -> list[ExtractResult] | list[ExtractPlan]
+def print_results(results, *, console) -> None
+def print_plans(plans, *, console) -> None
+def get_extractor(kind: str) -> Extractor | None       # реестр; None — вид пока не поддержан
+```
+
+1. Для каждого источника экстрактор пишет `extracted/<ID>/body.md` (Pandoc Markdown всего источника) и возвращает `ExtractOutput`.
+2. `extract/blocks.py`: `body.md` → AST Pandoc (`pandoc -t json`) → блоки верхнего уровня: fenced div с классом из `DIV_BLOCK_TYPES` → блок этого типа (`figure-description` → `figure`); абзац только с выключной формулой → `formula`; списки → `list`; таблицы → `table`; рисунки → `figure`; код → `code`; цитаты → `quote`; остальное → `paragraph`; обычные заголовки → `heading`. **Заголовок, начинающийся с якоря `[[X:loc]]`, — заголовок места**: задаёт текущий якорь и сам блоком не является. Если заголовков места нет (DOCX, Markdown, веб), якорь — `<ID>:§<k>`, где k — номер текущего раздела верхнего уровня (самый крупный уровень заголовков в документе). Id блоков — `<ID>.b001`… по порядку.
+3. `source.md` = YAML front matter (PRD 5.3: `id`, `kind`, `title`, `origin`, `original_name`, `sha256`, `units`, `quality`, `extracted_by`, `language`) + тело, где перед каждым блоком стоит комментарий `<!-- P1.b007 definition -->`. Тело собирается через Pandoc (`-t markdown --wrap=none`, расширения как у мастера), содержание не меняется.
+4. `blocks.jsonl` — по строке `Block.to_dict()` на блок.
+5. `summary.md` — один лёгкий прогон агента по `source.md` с контрактом из трёх разделов: `## Аннотация` (3–6 предложений), `## Оглавление` (заголовки с якорями), `## Термины и обозначения` (термин — краткое пояснение; нужен глоссарию ASR в M5 и синтезу S1). Без агентов (`--no-vision` или агент недоступен) оглавление и термины строятся детерминированно из заголовков и определений, аннотация помечается как отсутствующая.
+6. Кэш: ключ = sha256 источника + `Extractor.version` + версии промптов + модель уровня; `extracted/<ID>/meta.json` хранит ключ, длительность, число прогонов. Совпадение ключа и наличие `source.md` — пропуск (`cached=True`), если нет `--force`. Статус, `quality`, `units`, `extracted_key`, `error` записываются в `topic.yaml`.
+
+### Экстракторы
+
+| Вид | Модуль | Детерминированная часть | Агент |
+|---|---|---|---|
+| `pdf-text`, `pdf-scan` | `extract/pdf.py` | Классификация страниц: `text` (обычный текст → `pymupdf4llm` по странице), `math` (шрифты формул: имена с CMMI, CMSY, CMEX, MSAM, MSBM, EURM, TeX-math, CambriaMath, STIX, LatinModernMath, XITS, Asana, или высокая доля формульных глифов), `scan` (текста < 20 символов), `graphic` (мало текста, много рисунков или векторной графики). Удаление колонтитулов, повторяющихся на большинстве страниц. Рендер страниц для агента — PNG, длинная сторона ≤ 2000 px | `math`, `scan`, `graphic` → `vision.transcribe_pages` (flavor `document` или `scan`), текстовый слой страницы — подсказка |
+| `slides` (PDF) | `extract/slides.py` | Страница = слайд; заголовок слайда — строка крупнейшего кегля в верхней части; текст — как у PDF | Слайды `math` и `graphic` → `transcribe_pages` (flavor `slides`) |
+| `slides` (PPTX) | `extract/slides.py` | `python-pptx`: заголовок, тексты фигур с уровнями списков, таблицы, заметки докладчика (раздел «Заметки»), картинки в `figures/`. Если найден LibreOffice (`soffice`), PPTX конвертируется в PDF, и слайды-картинки распознаются как у PDF | Картинки без текста → описание через `transcribe_pages` |
+| `docx`, `md`, `tex` | `extract/docs.py` | Pandoc → Markdown (`--extract-media` в `figures/`), `.tex` — читателем LaTeX | — |
+| `web` | `extract/docs.py` | `trafilatura` (основной текст, заголовки, таблицы, ссылки на картинки) → Markdown | — |
+
+Заголовки мест в `body.md`: `## [[P1:p3]] Страница 3`, `## [[S1:s12]] Слайд 12. <заголовок слайда>`.
+
+### Распознавание страниц — `h0lon/extract/vision.py`
+
+```python
+@dataclass
+class VisionResult:
+    pages: dict[int, str]          # номер страницы → Markdown страницы (без заголовка места)
+    failed: dict[int, str]         # номер → причина
+    agent_runs: int; usage: Usage; cached_pages: int
+
+def transcribe_pages(ctx: ExtractContext, pages: Sequence[PageImage], *,
+                     flavor: Literal["document", "slides", "scan"], tier: Tier = "light",
+                     batch_size: int = 6) -> VisionResult
+```
+
+- Страницы идут батчами по `batch_size` (слайды — до 10) через `agents.create_bundle` и `run_task` (этап `extract`, бэкенд из `ctx.backend`, иначе `agents.default`). Бандлы — в `<тема>/runs/`. Контракт: файл `out/p<NNNN>.md` на каждую страницу батча. В `inputs/` — PNG страниц и `p<NNNN>.txt` с текстовым слоем.
+- Промпт — `h0lon/prompts/vision_pages@1.0.md`: точная транскрипция без пересказа и сокращений; формулы — LaTeX (`$…$`, `$$…$$`, `aligned`); семантические блоки — fenced divs из `DIV_BLOCK_TYPES`, только если они явно обозначены в источнике («Определение», «Теорема», «Def.», рамка); таблицы — pipe tables; рисунки и схемы — словесное описание в `::: {.figure-description}` (что изображено, подписи, оси, стрелки); неразборчивое — `[неразборчиво]`; колонтитулы, номера страниц, логотипы не переносятся; текстовый слой — подсказка для написания терминов, но картинка главнее; язык оригинала сохраняется. Для `slides` заголовок слайда не повторяется; для `scan` допускается рукописный текст.
+- Кэш страниц: `extracted/<ID>/pages/p<NNNN>.md` и `p<NNNN>.key` (sha256 PNG + подсказки + версия промпта и flavor); совпадение — без агента.
+- Страница, не распознанная после всех повторов, попадает в `failed`; экстрактор вставляет на её место текстовый слой (если он есть) в блоке `::: uncertain` «Страница не распознана агентом» и пишет предупреждение.
+
+### Сигналы качества (`quality` в `topic.yaml` и front matter `source.md`)
+
+`text_layer` (доля страниц с текстом), `chars_per_page`, `pages_math`, `pages_scan`, `pages_graphic`, `pages_vision`, `pages_failed`, `cyrillic_ratio` (доля кириллицы среди букв), `scan_dpi` (оценка для сканов), `notes` (русские строки — что стоит проверить на review gate).
+
 ## Правила для всех модулей
 
 - Внешние процессы — только через `procutil.run`; поиск инструментов — только через `tools`.

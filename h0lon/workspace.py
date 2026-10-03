@@ -209,3 +209,35 @@ def _init_git(result: TopicCreation) -> None:
     else:
         detail = _first_line(stderr) or res.error or f"код {res.exit_code}"
         result.warnings.append(f"Репозиторий темы создан, но первый коммит не сделан: {detail}.")
+
+
+TOPIC_FILE = "topic.yaml"
+
+
+def resolve_topic(settings: Settings, ref: str | Path) -> Path:
+    """Find a topic directory by reference.
+
+    Accepted: a path to a topic directory (or to its topic.yaml); `<course>/<slug>` relative
+    to the workspaces dir; a bare `<slug>` if exactly one course contains it.
+    Raises FileNotFoundError with a readable message otherwise.
+    """
+    raw = Path(ref).expanduser()
+    candidates: list[Path] = []
+    if raw.name == TOPIC_FILE:
+        raw = raw.parent
+    if raw.is_dir() and (raw / TOPIC_FILE).is_file():
+        return raw.resolve()
+    root = settings.general.workspaces_dir
+    rel = root / raw
+    if rel.is_dir() and (rel / TOPIC_FILE).is_file():
+        return rel.resolve()
+    if len(raw.parts) == 1 and root.is_dir():
+        candidates = sorted(p.parent for p in root.glob(f"*/{raw.name}/{TOPIC_FILE}"))
+        if len(candidates) == 1:
+            return candidates[0].resolve()
+    if len(candidates) > 1:
+        names = ", ".join(f"{c.parent.name}/{c.name}" for c in candidates)
+        raise FileNotFoundError(f"Тема «{ref}» неоднозначна: {names}. Укажите <курс>/<тема>.")
+    raise FileNotFoundError(
+        f"Тема не найдена: {ref}. Укажите путь к папке темы или <курс>/<тема> внутри {root}."
+    )

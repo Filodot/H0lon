@@ -184,6 +184,117 @@ def render(
     raise typer.Exit(0 if report.ok else 1)
 
 
+def _topic(settings: Settings, ref: str) -> Path:
+    from h0lon.workspace import resolve_topic
+
+    try:
+        return resolve_topic(settings, ref)
+    except FileNotFoundError as exc:
+        err_console.print(f"[red]Ошибка:[/red] {escape(str(exc))}")
+        raise typer.Exit(2) from exc
+
+
+@app.command()
+def add(
+    ctx: typer.Context,
+    topic: Annotated[str, typer.Argument(help="Тема: путь, <курс>/<тема> или имя темы.")],
+    items: Annotated[list[str], typer.Argument(help="Файлы и ссылки (http/https).")],
+    kind: Annotated[
+        str | None,
+        typer.Option("--kind", "-k", help="Тип источника вместо автоопределения (см. sources)."),
+    ] = None,
+    title: Annotated[
+        str | None, typer.Option("--title", help="Название источника (для одного элемента).")
+    ] = None,
+    json_out: Annotated[bool, typer.Option("--json", help="Результат в JSON.")] = False,
+) -> None:
+    """Добавить источники в тему: копия в sources/, хэш, тип, запись в topic.yaml."""
+    from h0lon.sources.ingest import IngestError, add_sources, print_sources
+
+    settings = _settings(ctx)
+    topic_dir = _topic(settings, topic)
+    try:
+        report = add_sources(settings, topic_dir, items, kind=kind, title=title)
+    except IngestError as exc:
+        err_console.print(f"[red]Ошибка:[/red] {escape(str(exc))}")
+        raise typer.Exit(2) from exc
+    if json_out:
+        _print_json(report.to_dict())
+    else:
+        print_sources(report.added, console=console, title="Добавлены источники")
+        for warning in report.warnings:
+            err_console.print(f"[yellow]Предупреждение:[/yellow] {escape(warning)}")
+    raise typer.Exit(0 if report.added or not items else 1)
+
+
+@app.command()
+def sources(
+    ctx: typer.Context,
+    topic: Annotated[str, typer.Argument(help="Тема: путь, <курс>/<тема> или имя темы.")],
+    json_out: Annotated[bool, typer.Option("--json", help="Результат в JSON.")] = False,
+) -> None:
+    """Показать источники темы и статус извлечения."""
+    from h0lon.sources.ingest import list_sources, print_sources
+
+    settings = _settings(ctx)
+    records = list_sources(_topic(settings, topic))
+    if json_out:
+        _print_json([r.model_dump() for r in records])
+    else:
+        print_sources(records, console=console, title="Источники темы")
+
+
+@app.command()
+def extract(
+    ctx: typer.Context,
+    topic: Annotated[str, typer.Argument(help="Тема: путь, <курс>/<тема> или имя темы.")],
+    source: Annotated[
+        list[str] | None,
+        typer.Option("--source", "-s", help="Только эти источники (id, повторяемо)."),
+    ] = None,
+    force: Annotated[bool, typer.Option("--force", help="Игнорировать кэш.")] = False,
+    no_vision: Annotated[
+        bool,
+        typer.Option("--no-vision", help="Без распознавания страниц агентом (только код)."),
+    ] = False,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Только план: страницы, прогоны агентов.")
+    ] = False,
+    backend: Annotated[
+        str | None, typer.Option("--backend", "-b", help="claude | codex для прогонов.")
+    ] = None,
+    json_out: Annotated[bool, typer.Option("--json", help="Результат в JSON.")] = False,
+) -> None:
+    """Извлечь источники в Source Docs: extracted/<ID>/source.md, blocks.jsonl, summary.md."""
+    from h0lon.extract.pipeline import extract_topic, print_plans, print_results
+
+    if backend not in (None, "claude", "codex"):
+        err_console.print("[red]--backend: допустимо claude | codex[/red]")
+        raise typer.Exit(2)
+    settings = _settings(ctx)
+    topic_dir = _topic(settings, topic)
+    outcome = extract_topic(
+        settings,
+        topic_dir,
+        source_ids=source or None,
+        force=force,
+        use_vision=not no_vision,
+        dry_run=dry_run,
+        backend=backend,
+        on_event=None
+        if json_out
+        else (lambda msg: err_console.print(msg, style="dim", markup=False, highlight=False)),
+    )
+    if json_out:
+        _print_json([item.to_dict() for item in outcome])
+    elif dry_run:
+        print_plans(outcome, console=console)  # type: ignore[arg-type]
+    else:
+        print_results(outcome, console=console)  # type: ignore[arg-type]
+    failed = not dry_run and any(not r.ok for r in outcome)  # type: ignore[union-attr]
+    raise typer.Exit(1 if failed else 0)
+
+
 @app.command("agent-test")
 def agent_test(
     ctx: typer.Context,
