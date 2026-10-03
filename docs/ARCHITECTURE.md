@@ -347,6 +347,25 @@ Front matter: `title` (из структуры), `subtitle: "Мастер-кон
 
 Все тексты интерфейса — по-русски. Ошибки действий показываются на странице понятным сообщением, а не трассировкой.
 
+## Вариации (M7, часть 1)
+
+`h0lon/synth/variants.py`: из готового `master.md` по пресету или запросу собирается производный документ (PRD 10.1).
+
+```python
+PRESETS = {"brief": light, "cheatsheet": light, "study": strong, "custom": strong}   # решение A12
+def run_variant(settings, topic_dir, *, preset: str, prompt: str | None = None,
+                template: str | None = None, backend: str | None = None, force: bool = False,
+                on_event=None) -> VariantResult      # ok, slug, dir, variant_md, variant_pdf, stale, warnings, errors, agent_runs
+def list_variants(topic_dir) -> list[dict]            # slug, preset, prompt, created, master_sha, stale, pdf
+```
+
+- Каталог — `variants/<slug>/`: `variant.md`, `variant.pdf`, `meta.json` (preset, prompt, template, модель, дата, sha256 master.md, промпт-версия). Слаг: имя пресета; для `custom` — `custom-<первые слова запроса>`; повторный запуск того же пресета перезаписывает свою вариацию, если мастер изменился или задан `--force`, иначе — из кэша.
+- Агент: промпт `variant_<preset>@1.0.md`, вход `inputs/master.md` (копия мастера) и для `custom` — `inputs/request.md`; контракт `out/variant.md`; проверка — непустой Markdown с хотя бы одним заголовком; якоря `[[…]]` и комментарии `src`, если агент их оставил, вычищаются кодом.
+- `template:<имя>` — перевёрстка мастера другим шаблоном без агента (`render_document(master.md, template=…)`).
+- Front matter вариации: `title` = «<тема> — <название пресета>», `course`, `date`, `subtitle` = название пресета. Шпаргалка рендерится шаблоном `a4-compact` (мелкий шрифт, узкие поля, две колонки).
+- «Устарело» — sha256 `master.md` не совпадает с `meta.json`.
+- CLI: `h0lon variant <тема> --preset brief|study|cheatsheet|custom [--prompt "…"] [--template <имя>] [--force] [--backend …]`, `h0lon variants <тема>`. Веб: блок «Вариации» на странице темы (пресеты, поле запроса, список готовых со статусом «актуально/устарело» и ссылками на PDF), задача вида `variant`.
+
 ## Правила для всех модулей
 
 - Внешние процессы — только через `procutil.run`; поиск инструментов — только через `tools`.
