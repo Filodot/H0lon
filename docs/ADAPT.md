@@ -202,7 +202,7 @@ mono_font = "Liberation Mono"
 math_font = "Latin Modern Math"
 ```
 
-Проверить, что шрифт виден: `fc-list : family | grep -i -E "liberation|latin modern math"`. Если Latin Modern Math не находится по имени, укажите имя файла `math_font = "latinmodern-math.otf"` — XeLaTeX найдёт его в дереве TeX Live. Пакет, в котором лежит недостающий `.sty`, подскажет `apt-file search <файл>.sty`. H0lon ищет `xelatex` в `PATH`, `/usr/bin` и `/usr/local/texlive/<год>/bin/*/`. Запасной HTML-рендер на Linux требует Chromium или Chrome: `browser = "chromium"` или путь к исполняемому файлу.
+Проверить, что шрифт виден: `fc-list : family | grep -i -E "liberation|latin modern math"`. Если Latin Modern Math не находится по имени, укажите имя файла `math_font = "latinmodern-math.otf"` — XeLaTeX найдёт его в дереве TeX Live. Пакет, в котором лежит недостающий `.sty`, подскажет `apt-file search <файл>.sty`. H0lon ищет `xelatex` в `PATH`, `/usr/bin` и `/usr/local/texlive/<год>/bin/*/`. Запасной HTML-рендер на Linux требует Chromium или Chrome: `browser = "chromium"` или путь к исполняемому файлу. Если браузер падает с сообщением про `msedge-sandbox` или `chrome-sandbox` ("must be owned by root and have mode 4755"), верните вспомогательному файлу песочницы права из документации браузера: `sudo chown root:root /opt/microsoft/msedge/msedge-sandbox && sudo chmod 4755 /opt/microsoft/msedge/msedge-sandbox` (для Chrome — `/opt/google/chrome/chrome-sandbox`). Отключать песочницу флагом `--no-sandbox` H0lon не будет.
 
 На любой ОС для текста подойдёт любой шрифт с кириллицей, для формул — любой математический OpenType-шрифт. `uv run h0lon doctor` проверит, что шрифты из конфига найдены.
 

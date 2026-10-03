@@ -73,5 +73,19 @@ jobs:
           uv run python -c "import pypandoc; print('pandoc', pypandoc.get_pandoc_version())"
           uv run h0lon version
 
+      # Ubuntu images ship Edge/Chrome with a setuid sandbox helper that lacks the setuid bit,
+      # so headless print-to-pdf aborts (needs_browser tests). Restore the documented mode.
+      - name: Browser sandbox (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          for helper in /opt/microsoft/msedge/msedge-sandbox /opt/google/chrome/chrome-sandbox; do
+            if [ -f "$helper" ]; then
+              sudo chown root:root "$helper"
+              sudo chmod 4755 "$helper"
+              echo "fixed $helper"
+            fi
+          done
+
       - name: pytest
         run: uv run pytest -q
