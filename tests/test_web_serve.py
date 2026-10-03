@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import socket
 import threading
 from pathlib import Path
@@ -65,7 +66,11 @@ def test_serve_starts_uvicorn_in_process_on_loopback(
 
 
 def test_serve_default_port_is_8765(config: Path, uvicorn_calls: list[dict[str, Any]]) -> None:
-    help_text = runner.invoke(cli_app, ["serve", "--help"]).output
+    raw = runner.invoke(
+        cli_app, ["serve", "--help"], env={"NO_COLOR": "1", "COLUMNS": "200"}
+    ).output
+    # CI terminals make rich colour the help; strip ANSI codes before looking for the words
+    help_text = re.sub(r"\x1b\[[0-9;]*m", "", raw)
     assert "8765" in help_text and "127.0.0.1" in help_text and "--open" in help_text
     # the real default is only used when it is free on this machine: the command must pass it on
     try:
