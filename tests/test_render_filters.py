@@ -468,10 +468,11 @@ def test_html_allows_images_inside_source_dir(pandoc: Path, tmp_path: Path) -> N
     assert out.count("<img") == 3
 
 
-def test_latex_output_is_not_sanitised(pandoc: Path) -> None:
+def test_latex_remote_image_becomes_a_link(pandoc: Path) -> None:
+    # XeLaTeX cannot load remote pictures: paths.lua turns them into a link with the caption
     out = to_latex(pandoc, "![Сеть](https://example.org/x.png){width=50%}\n")
-    assert r"\includegraphics[width=0.5\linewidth" in out
-    assert "https://example.org/x.png" in out
+    assert r"\includegraphics" not in out
+    assert r"\href{https://example.org/x.png}{Рисунок: Сеть}" in out
 
 
 def test_html_heading_anchor_hidden_from_outline_and_default_date(pandoc: Path) -> None:

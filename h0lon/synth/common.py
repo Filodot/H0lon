@@ -58,6 +58,30 @@ def is_admin(block: Block) -> bool:
     return block.type == "admin"
 
 
+# Relative targets of Markdown images and HTML src attributes (not URLs, data:, absolute
+# paths or #anchors). M1 writes them relative to extracted/<ID>/, the master lives in the
+# topic root.
+_MD_IMAGE_REL_RE = re.compile(r"(!\[[^\]\n]*\]\()(?![a-zA-Z][a-zA-Z0-9+.-]*:|/|\\|#)([^)\s]+)")
+_HTML_SRC_REL_RE = re.compile(r"""(\bsrc=["'])(?![a-zA-Z][a-zA-Z0-9+.-]*:|/|\\|#)([^"']+)""")
+
+
+def topic_relative_md(block: Block) -> str:
+    """Block Markdown with relative image paths rewritten from extracted/<ID>/ to the topic root.
+
+    `![](figures/a.png)` of block P1.b003 → `![](extracted/P1/figures/a.png)`, so section
+    texts and master.md (both read from the topic root) keep working images.
+    """
+    prefix = f"extracted/{block.source}/"
+
+    def fix(m: re.Match[str]) -> str:
+        target = m.group(2).replace("\\", "/")
+        if target.startswith("extracted/"):
+            return m.group(0)
+        return m.group(1) + prefix + target
+
+    return _HTML_SRC_REL_RE.sub(fix, _MD_IMAGE_REL_RE.sub(fix, block.md))
+
+
 # ---------------------------------------------------------------- src comments
 
 
@@ -196,11 +220,29 @@ def run_agent(
     )
 
 
-def model_for(ctx: BuildContext, tier: Tier) -> str:
-    """Configured model name of the default backend for the tier (part of cache keys)."""
+def model_for(ctx: BuildContext, tier: Tier, stage: str | None = None) -> str:
+    """Configured agent/model/effort for the tier and stage (part of cache keys)."""
     agents = ctx.settings.agents
-    name = ctx.backend or agents.default
+    if ctx.backend:
+        name = ctx.backend
+    elif stage:
+        name = ctx.settings.stages.backend_for(stage, agents)
+    else:
+        name = agents.default
     cfg = agents.claude if name == "claude" else agents.codex
     model = cfg.model_strong if tier == "strong" else cfg.model_light
     effort = cfg.effort_strong if tier == "strong" else cfg.effort_light
     return f"{name}:{model or 'default'}:{effort}"
+
+
+def percent(part: int | float, total: int | float) -> str:
+    """Coverage-style percentage that never rounds up to 100: 467/468 → «99,7 %»."""
+    if not total:
+        return "—"
+    value = 100.0 * part / total
+    if part < total:
+        value = int(min(value, 99.9) * 10) / 10  # floor to one decimal, never «100 %»
+        text = f"{value:.1f}".removesuffix(".0")
+    else:
+        text = "100"
+    return text.replace(".", ",") + " %"

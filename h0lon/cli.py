@@ -359,5 +359,107 @@ def agent_test(
     raise typer.Exit(0 if result.ok else 1)
 
 
+@app.command()
+def build(
+    ctx: typer.Context,
+    topic: Annotated[str, typer.Argument(help="Тема: путь, <курс>/<тема> или имя темы.")],
+    no_review: Annotated[
+        bool, typer.Option("--no-review", help="Не останавливаться на review gate.")
+    ] = False,
+    from_stage: Annotated[
+        str | None,
+        typer.Option(
+            "--from",
+            help="Пересчитать эту стадию и все после неё: "
+            "extract | outline | sections | global | coverage | assemble | render.",
+        ),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="Игнорировать кэш стадий синтеза (извлечение — через --from extract).",
+        ),
+    ] = False,
+    backend: Annotated[
+        str | None,
+        typer.Option("--backend", "-b", help="claude | codex для стадий синтеза."),
+    ] = None,
+    json_out: Annotated[bool, typer.Option("--json", help="Результат в JSON.")] = False,
+) -> None:
+    """Собрать мастер-конспект: структура, разделы, полнота, master.md, master.pdf."""
+    from h0lon.sources.ingest import IngestError
+    from h0lon.synth.build import build_topic, print_build
+
+    if backend not in (None, "claude", "codex"):
+        err_console.print("[red]--backend: допустимо claude | codex[/red]")
+        raise typer.Exit(2)
+    settings = _settings(ctx)
+    topic_dir = _topic(settings, topic)
+    try:
+        result = build_topic(
+            settings,
+            topic_dir,
+            review=not no_review,
+            from_stage=from_stage,
+            force=force,
+            backend=backend,
+            on_event=None
+            if json_out
+            else (lambda msg: err_console.print(msg, style="dim", markup=False, highlight=False)),
+        )
+    except (ValueError, IngestError) as exc:
+        err_console.print(f"[red]Ошибка:[/red] {escape(str(exc))}")
+        raise typer.Exit(2) from exc
+    if json_out:
+        _print_json(result.to_dict())
+    else:
+        print_build(result, console=console)
+    raise typer.Exit(0 if result.ok else 3 if result.stopped_at == "review" else 1)
+
+
+@app.command()
+def approve(
+    ctx: typer.Context,
+    topic: Annotated[str, typer.Argument(help="Тема: путь, <курс>/<тема> или имя темы.")],
+) -> None:
+    """Одобрить текущее извлечение источников (review gate перед сборкой)."""
+    from h0lon.sources.ingest import IngestError
+    from h0lon.synth.build import approve_topic
+
+    settings = _settings(ctx)
+    topic_dir = _topic(settings, topic)
+    try:
+        info = approve_topic(settings, topic_dir)
+    except (ValueError, IngestError) as exc:
+        err_console.print(f"[red]Ошибка:[/red] {escape(str(exc))}")
+        raise typer.Exit(2) from exc
+    console.print(f"Извлечение одобрено: {', '.join(info['sources'])} ({info['approved_at']}).")
+    console.print("Дальше: [bold]h0lon build[/bold] — собрать мастер-конспект.")
+
+
+@app.command()
+def status(
+    ctx: typer.Context,
+    topic: Annotated[str, typer.Argument(help="Тема: путь, <курс>/<тема> или имя темы.")],
+    json_out: Annotated[bool, typer.Option("--json", help="Результат в JSON.")] = False,
+) -> None:
+    """Состояние темы: источники, review gate, стадии, покрытие, master.pdf."""
+    from h0lon.sources.ingest import IngestError
+    from h0lon.synth.build import print_status, topic_status
+
+    settings = _settings(ctx)
+    topic_dir = _topic(settings, topic)
+    try:
+        info = topic_status(settings, topic_dir)
+    except (ValueError, IngestError) as exc:
+        err_console.print(f"[red]Ошибка:[/red] {escape(str(exc))}")
+        raise typer.Exit(2) from exc
+    if json_out:
+        _print_json(info)
+    else:
+        print_status(info, console=console)
+
+
 if __name__ == "__main__":
     app()

@@ -25,11 +25,20 @@ end
 
 function Pandoc(doc)
   local dir = doc.meta['h0lon-resource-dir']
-  if dir == nil then return nil end
-  base = pandoc.utils.stringify(dir)
-  if base == '' then return nil end
+  base = dir and pandoc.utils.stringify(dir) or nil
+  if base == '' then base = nil end
   return doc:walk({
     Image = function(img)
+      -- XeLaTeX cannot load remote pictures: turn them into a link «Рисунок: <подпись>».
+      if FORMAT:match('latex') and img.src:match('^[Hh][Tt][Tt][Pp][Ss]?://') then
+        local label = { pandoc.Str('Рисунок:'), pandoc.Space() }
+        if #img.caption > 0 then
+          for _, inline in ipairs(img.caption) do label[#label + 1] = inline end
+        else
+          label[#label + 1] = pandoc.Str('внешнее изображение')
+        end
+        return pandoc.Link(label, img.src)
+      end
       local resolved = resolve(img.src)
       if resolved then
         img.src = resolved

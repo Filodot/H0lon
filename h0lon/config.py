@@ -93,8 +93,26 @@ class StagesConfig(BaseModel):
     variants: StageChoice = "auto"
 
     def backend_for(self, stage: str, agents: AgentsConfig) -> AgentName:
-        choice = getattr(self, stage, "auto")
+        """Agent for a bundle stage; synthesis and service stages map onto the config keys."""
+        field_name = STAGE_TO_FIELD.get(stage, stage)
+        choice = getattr(self, field_name, "auto")
+        if choice not in ("auto", "claude", "codex"):
+            choice = "auto"
         return agents.default if choice == "auto" else choice
+
+
+# Bundle stage names (agents.create_bundle(stage=…)) → StagesConfig field.
+STAGE_TO_FIELD: dict[str, str] = {
+    "outline": "synthesis",
+    "sections": "synthesis",
+    "global": "synthesis",
+    "supplement": "synthesis",
+    "coverage": "coverage",
+    "fixlatex": "coverage",
+    # M1 agent runs (page transcription, source annotation) follow the extraction setting.
+    "extract": "slides_frames",
+    "summary": "slides_frames",
+}
 
 
 class QueueConfig(BaseModel):

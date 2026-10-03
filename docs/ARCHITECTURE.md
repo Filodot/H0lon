@@ -290,6 +290,19 @@ def transcribe_pages(ctx: ExtractContext, pages: Sequence[PageImage], *,
 
 Группировка S2: подряд идущие листья структуры собираются в группы по 1–4 раздела так, чтобы суммарный объём блоков группы не превышал ~60 000 символов (раздел больше порога идёт один). Группы выполняются параллельно, не больше `agents.parallel_runs`. Бандлы — `<тема>/runs/`, этапы `outline`, `sections`, `global`, `coverage`, `supplement`, `fixlatex`.
 
+### Раскладка `synthesis/` (по итогам реализации)
+
+- `inputs/` — входы, которые готовит код: `summaries.md`, `blocks_index.md`, `terms.md` (объединённые «Термины и обозначения»; в бандлы S2/S3 попадает как `glossary.md`), `<id>.blocks.md` (S2), `uncovered.md`, `master_index.md`, `missing.md` (S4/S5), `inputs/global/` (S3).
+- `outline.json`, `outline.md` (всегда рендер кода с id разделов — его получают S2–S5), `outline.agent.md` (вариант агента S1, для справки).
+- `sections/<id>.md`, `sections/<id>.notes.json` — S2 (у разделов без блоков — только заголовок, без notes).
+- `global/` — S3: `sections/`, `intro.md`, `glossary.md`, `global.notes.json`.
+- `final/` — текущий текст для S4/S5 и сборки: при успехе S3 — копия `global/`, при провале (A5) — копия `sections/` без введения и глоссария. S5 дописывает в `final/sections/`; чтобы вернуть `final/` к состоянию после S3, нужен `--from global`.
+- `coverage.json` — `CoverageReport.to_dict()` + `verdicts`; `build.json` — отчёт последней сборки; `<stage>.meta.json` — кэш стадий.
+- Процент покрытия никогда не округляется вверх до 100 % (`synth.common.percent`).
+- `runs/` и `synthesis/build.json` не коммитятся в git темы: `build` дописывает недостающие шаблоны в `.gitignore` темы.
+- Картинки блоков переписываются от корня темы (`extracted/<ID>/figures/…`), удалённые картинки (`http(s)://`) фильтр рендера превращает в ссылку «Рисунок: подпись».
+- Выбор агента по стадиям: стадии бандлов `outline`, `sections`, `global`, `supplement` подчиняются `stages.synthesis`, `coverage` и `fixlatex` — `stages.coverage`, `extract` и `summary` — `stages.slides_frames`.
+
 ### Кэш стадий
 
 `synthesis/<stage>.meta.json` хранит ключ: sha256 входов стадии + версия промпта + модель уровня. Совпал ключ и есть выход — стадия пропускается. Изменение одного источника меняет ключи всех последующих стадий; изменение одного раздела структуры пересчитывает в S2 только его группу (ключ группы — по её входам). `--force` и `--from <стадия>` перезапускают стадию и всё, что после неё.

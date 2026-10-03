@@ -27,6 +27,8 @@ GITIGNORE_PATTERNS = (
     "*.mp3",
     ".topic.yaml.lock",  # inter-thread/process lock of topic.yaml (h0lon.sources.ingest)
     "sources/.incoming-*",  # partial copies of an interrupted `h0lon add`
+    "runs/",  # agent bundles: transcripts and attempts, large and not part of the history
+    "synthesis/build.json",  # last build report, rewritten on every build
 )
 
 _TOPIC_YAML_HEADER = (
