@@ -6,7 +6,7 @@ import json
 import re
 import shutil
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,6 +39,11 @@ class TaskBundle:
     @property
     def attempts_dir(self) -> Path:
         return self.root / "attempts"
+
+    @property
+    def seed_dir(self) -> Path:
+        """Files placed into out/ before every attempt (in-place edit tasks), if any."""
+        return self.root / "seed"
 
     @property
     def run_json(self) -> Path:
@@ -159,8 +164,13 @@ def create_bundle(
     images: Sequence[Path] = (),
     workspace: Path | None = None,
     bundle_id: str | None = None,
+    seed: Mapping[str, Path] | None = None,
 ) -> TaskBundle:
     """Create runs/<id>/ with task.md, inputs/ (copies), out/ and bundle.json.
+
+    `seed` maps paths relative to out/ (forward slashes) to source files: they are copied
+    into seed/ and restored into out/ before every attempt, so an agent can edit them in
+    place (cheaper than rewriting large files) and a retry starts from the originals.
 
     Everything is checked before the directory appears: a missing input raises
     FileNotFoundError, a broken contract schema or a non-file image raises ValueError; a
@@ -171,7 +181,16 @@ def create_bundle(
         raise ValueError("Некорректный контракт вывода: " + "; ".join(contract_problems))
     input_srcs = [Path(src).expanduser() for src in inputs]
     image_srcs = [Path(src).expanduser() for src in images]
-    missing = [src for src in (*input_srcs, *image_srcs) if not src.exists()]
+    seed_items = [
+        (str(rel).replace(chr(92), "/").strip("/"), Path(src).expanduser())
+        for rel, src in (seed or {}).items()
+    ]
+    for rel, _src in seed_items:
+        if not rel or rel.startswith("../") or "/../" in rel or ":" in rel:
+            raise ValueError(f"Путь затравки должен быть относительным внутри out/: {rel}")
+    missing = [
+        src for src in (*input_srcs, *image_srcs, *(s for _, s in seed_items)) if not src.exists()
+    ]
     if missing:
         label = "Входной файл не найден" if len(missing) == 1 else "Входные файлы не найдены"
         raise FileNotFoundError(f"{label}: " + ", ".join(str(p) for p in missing))
@@ -194,6 +213,10 @@ def create_bundle(
         for src in input_srcs:
             _copy_in(src, inputs_dir, taken)
         copied_images = [_copy_in(src, inputs_dir, taken, image=True) for src in image_srcs]
+        for rel, src in seed_items:
+            dest = root / "seed" / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dest)
 
         bundle = TaskBundle(
             id=bundle_id,

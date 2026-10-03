@@ -269,6 +269,21 @@ def archive_out(bundle: TaskBundle) -> Path | None:
     return target
 
 
+def restore_seed(bundle: TaskBundle) -> int:
+    """Copy seed/ (files for in-place editing) into out/; returns the number of files."""
+    seed = bundle.seed_dir
+    if not seed.is_dir():
+        return 0
+    count = 0
+    for src in seed.rglob("*"):
+        if src.is_file():
+            dest = bundle.out_dir / src.relative_to(seed)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dest)
+            count += 1
+    return count
+
+
 def _validate(bundle: TaskBundle, outcome: BackendOutcome) -> tuple[list[str], Any]:
     problems = validate_outputs(bundle.out_dir, bundle.contract)
     final_problems, data = validate_final_message(
@@ -352,6 +367,7 @@ def run_task(
         last_problems: list[str] = []
         while True:
             archive_out(bundle)
+            restore_seed(bundle)
             n = _next_attempt_number(bundle)
             attempt_dir = bundle.attempts_dir / f"{n}-{name}"
             attempt_dir.mkdir(parents=True, exist_ok=True)

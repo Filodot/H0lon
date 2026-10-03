@@ -270,6 +270,46 @@ def transcribe_pages(ctx: ExtractContext, pages: Sequence[PageImage], *,
 
 `text_layer` (доля страниц с текстом), `chars_per_page`, `pages_math`, `pages_scan`, `pages_graphic`, `pages_vision`, `pages_failed`, `cyrillic_ratio` (доля кириллицы среди букв), `scan_dpi` (оценка для сканов), `notes` (русские строки — что стоит проверить на review gate).
 
+## Синтез мастер-конспекта (M2)
+
+Цель M2 — `h0lon build <тема>`: Source Docs всех источников → `synthesis/` → `master.md` → `master.pdf` (PRD 5.4, 7, 8, 9). Модели — `h0lon/synth/model.py` (готово); промпты — `h0lon/prompts/{outline,sections,globalpass,coverage,supplement,fixlatex}@1.0.md` (готово). Синтез (S1–S3, S5) идёт на сильном уровне агента (`tier="strong"`, по умолчанию Claude Opus), разбор покрытия и починка LaTeX (S4, S6) — на лёгком.
+
+### Стадии и файлы `<тема>/synthesis/`
+
+| Стадия | Модуль | Вход | Выход | Проверка кодом |
+|---|---|---|---|---|
+| extract | M1 `extract_topic` | источники | `extracted/<ID>/…` | M1 |
+| review gate | `synth/build.py` | — | — | см. ниже |
+| S1 outline | `synth/outline.py` | `summaries.md` (все `summary.md` с заголовками источников), `blocks_index.md` (по строке на блок: `id [тип] (якорь) первые ~160 символов текста`) | `outline.json`, `outline.md` | JSON Schema; каждый не-`admin` блок назначен ровно одному листу или указан в `unassigned` с причиной; id разделов уникальны и в формате `s01`/`s01-01`; иначе повтор с обратной связью |
+| S2 sections | `synth/sections.py` | `outline.md`, `glossary.md` (объединённые «Термины и обозначения»), `<id>.blocks.md` на раздел | `sections/<id>.md`, `sections/<id>.notes.json` | файл начинается заголовком `{#sec:<id>}` нужного уровня; все id блоков раздела есть в комментариях `src` (иначе повтор с обратной связью, список пропущенных id); notes — JSON Schema |
+| S3 global | `synth/globalpass.py` | копии всех разделов в `out/sections/`, `outline.md`, `glossary.md`, `notes.json` | правленые `sections/*.md`, `intro.md`, `glossary.md`, `global.notes.json` | множество id в `src` по всем разделам не уменьшилось; заголовки `{#sec:<id>}` на месте; суммарный объём текста не меньше 90 % исходного; иначе повтор, после второго провала — разделы S2 остаются без глобальной правки (предупреждение) |
+| S4 coverage | `synth/coverage.py` | `uncovered.md`, `outline.md`, `master_index.md` | `coverage.json` | вердикт на каждый блок |
+| S5 supplement | `synth/coverage.py` | копии целевых разделов, `missing.md` | правленые разделы | id `missing`-блоков появились в `src`; не больше 2 кругов S4→S5 |
+| assemble | `synth/assemble.py` | разделы, `intro.md`, `glossary.md`, все notes, `coverage.json` | `<тема>/master.md` | — |
+| S6 render | `synth/render.py` | `master.md` | `<тема>/master.pdf` | `render_document`; при ошибке XeLaTeX — до 3 прогонов `fixlatex` по логу (проверка: id в `src` и якоря не изменились, объём ±3 %), затем запасной HTML-движок |
+
+Группировка S2: подряд идущие листья структуры собираются в группы по 1–4 раздела так, чтобы суммарный объём блоков группы не превышал ~60 000 символов (раздел больше порога идёт один). Группы выполняются параллельно, не больше `agents.parallel_runs`. Бандлы — `<тема>/runs/`, этапы `outline`, `sections`, `global`, `coverage`, `supplement`, `fixlatex`.
+
+### Кэш стадий
+
+`synthesis/<stage>.meta.json` хранит ключ: sha256 входов стадии + версия промпта + модель уровня. Совпал ключ и есть выход — стадия пропускается. Изменение одного источника меняет ключи всех последующих стадий; изменение одного раздела структуры пересчитывает в S2 только его группу (ключ группы — по её входам). `--force` и `--from <стадия>` перезапускают стадию и всё, что после неё.
+
+### Сборка `master.md`
+
+Front matter: `title` (из структуры), `subtitle: "Мастер-конспект темы"`, `course`, `date` (дата сборки), `author: "H0lon"`, `sources` (id, kind, title, units). Тело: `intro.md`, разделы в порядке структуры, `glossary.md`, затем приложения:
+
+- `# Расхождения между источниками {#app:conflicts .appendix}` — из всех `conflicts` (тема, варианты с якорями, выбранный вариант и причина);
+- `# Журнал правок {#app:corrections}` — таблица `corrections` (якорь, как написано, как исправлено, причина); пустой журнал — явная фраза «Прямых правок не было»;
+- `# Редакторские дополнения {#app:editorial}` — `editorial` со ссылкой на раздел;
+- `# Карта покрытия {#app:coverage}` — таблица «источник → блоков → покрыто → %» и список непокрытых блоков с вердиктами.
+
+### Review gate и команды
+
+- `h0lon build <тема> [--no-review] [--from <стадия>] [--force] [--backend claude|codex] [--json]` — все стадии по порядку; результат — `BuildResult`. Код выхода: 0 — готово, 1 — ошибка, 3 — остановка на review gate.
+- Review gate: если `topic.yaml review_gate` (иначе `general.review_gate`) включён, `build` после извлечения проверяет `topic.yaml review: {approved_at, extracted_keys}`; если одобрения нет или `extracted_keys` не совпадают с текущими `extracted_key` источников — остановка с подсказкой. `--no-review` пропускает проверку для этого запуска.
+- `h0lon approve <тема>` — записать одобрение текущего извлечения. `h0lon status <тема>` — источники, стадии (готово, из кэша, устарело), покрытие, путь к master.pdf.
+- После успешной сборки — коммит в git-репозиторий темы «Сборка мастера: <дата>, покрытие NN %» (если тема — git-репозиторий; ошибки git — предупреждение).
+
 ## Правила для всех модулей
 
 - Внешние процессы — только через `procutil.run`; поиск инструментов — только через `tools`.
