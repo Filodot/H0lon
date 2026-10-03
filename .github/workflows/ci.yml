@@ -1,0 +1,77 @@
+# Lint + tests on every push and pull request. No agent calls and no network in tests:
+# live_agent tests are skipped (H0LON_LIVE_AGENT is not "1"), TeX is not installed on the
+# runners, so needs_xelatex tests are skipped; pandoc comes from the pypandoc-binary wheel.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  H0LON_LIVE_AGENT: "0"
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      # setup-uv publishes only immutable full-version tags (no @v10), so pin the commit.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: ruff check
+        run: uv run ruff check --output-format=github .
+
+      - name: ruff format --check
+        run: uv run ruff format --check .
+
+  test:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+
+      # python-version exports UV_PYTHON. Without it `uv run` would rebuild .venv for the
+      # version pinned in .python-version (3.13) and the 3.11 leg would silently test 3.13.
+      - name: Set up uv (Python ${{ matrix.python }})
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python }}
+
+      - name: Install dependencies
+        run: uv sync --locked --python ${{ matrix.python }}
+
+      # bash (Git Bash on Windows) runs with -e, so any failing line fails the step; under
+      # the default pwsh shell only the exit code of the last command would count.
+      - name: Environment
+        shell: bash
+        run: |
+          uv run python -VV
+          uv run python -c "import pypandoc; print('pandoc', pypandoc.get_pandoc_version())"
+          uv run h0lon version
+
+      - name: pytest
+        run: uv run pytest -q

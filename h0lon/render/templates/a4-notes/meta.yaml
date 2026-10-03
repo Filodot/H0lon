@@ -1,0 +1,45 @@
+# Встроенный шаблон H0lon: A4-конспект в стиле skill handwritten-notes-parser.
+title: "A4-конспект: Times New Roman + Cambria Math, зеркальные поля"
+description: >-
+  A4, зеркальные поля (25/20 мм), нумерованные разделы по центру, определения и задачи
+  с чёрным треугольником, теоремы с колонкой подписи, доказательства и решения с серой
+  полосой слева, колонтитулы «курс / тема», титульная страница с перечнем источников,
+  кликабельное оглавление и закладки.
+engine: xelatex
+# Файлы .sty, без которых шаблон не собирается (проверяет h0lon doctor).
+latex_packages:
+  - iftex.sty
+  - amsmath.sty
+  - mathtools.sty
+  - fontspec.sty
+  - unicode-math.sty
+  - polyglossia.sty
+  - geometry.sty
+  - microtype.sty
+  - titlesec.sty
+  - enumitem.sty
+  - needspace.sty
+  - xcolor.sty
+  - mdframed.sty
+  - fancyhdr.sty
+  - etoolbox.sty
+  - tocloft.sty
+  - caption.sty
+  - fancyvrb.sty
+  - longtable.sty
+  - booktabs.sty
+  - array.sty
+  - calc.sty
+  - graphicx.sty
+  - ulem.sty
+  - hyperref.sty
+  - bookmark.sty
+# Необязательные: шаблон подключает их через \IfFileExists и без них тоже собирается
+# (footnotehyper заменяется на footnote). h0lon doctor это поле пока не читает.
+optional_latex_packages:
+  - upquote.sty
+  - xurl.sty
+  - footnotehyper.sty
+  - footnote.sty
+# Стиль запасного рендера HTML → PDF (браузер). Шаблон HTML — template.html рядом.
+html_css: style.css

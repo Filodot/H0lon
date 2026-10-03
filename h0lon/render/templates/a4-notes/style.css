@@ -1,0 +1,192 @@
+/* H0lon a4-notes: print stylesheet for the HTML → PDF fallback (Chromium print-to-pdf).
+   Mirrors template.tex: A4, mirrored margins, Times New Roman + Cambria Math,
+   numbered centered sections, triangle-marked definitions, gray-bar proofs. */
+
+@page {
+  size: A4;
+  margin: 20mm 20mm 22mm 25mm;
+  @bottom-center {
+    content: counter(page);
+    font: 10pt "Times New Roman", "Liberation Serif", serif;
+    vertical-align: top;
+    padding-top: 6mm;
+  }
+}
+@page :left {
+  margin-left: 20mm;
+  margin-right: 25mm;
+  @top-left { font: 8.5pt "Times New Roman", serif; color: #777; vertical-align: bottom; padding-bottom: 3mm; }
+}
+@page :right {
+  margin-left: 25mm;
+  margin-right: 20mm;
+  @top-right { font: 8.5pt "Times New Roman", serif; color: #777; vertical-align: bottom; padding-bottom: 3mm; }
+}
+
+:root {
+  --text: #111;
+  --muted: #777;
+  --bar: #d1d1d1;
+  --rule: #222;
+}
+
+html {
+  font-family: "Times New Roman", "Liberation Serif", "Tinos", serif;
+  font-size: 11pt;
+  line-height: 1.32;
+  color: var(--text);
+  background: #fff;
+}
+body { margin: 0; }
+main { orphans: 2; widows: 2; }
+
+p {
+  margin: 0;
+  text-align: justify;
+  text-indent: 1.25em;
+  hyphens: auto;
+}
+h1 + p, h2 + p, h3 + p, h4 + p, figure + p, table + p, .h0-block p:first-child,
+li > p, dd > p, td p, th p, blockquote > p:first-child { text-indent: 0; }
+
+math { font-family: "Cambria Math", "STIX Two Math", math; font-size: 1.05em; }
+math[display="block"] { margin: 0.55em 0; }
+
+code, pre, kbd { font-family: Consolas, "DejaVu Sans Mono", monospace; }
+code { font-size: 0.92em; }
+
+a { color: inherit; text-decoration: none; }
+
+/* ------------------------------------------------------------ headings */
+h1, h2, h3, h4 { font-weight: bold; break-after: avoid; page-break-after: avoid; }
+h1 { font-size: 15.5pt; text-align: center; margin: 2.2em 0 1.1em; line-height: 1.25; }
+h2 { font-size: 13pt; margin: 1.4em 0 0.55em; }
+h3 { font-size: 11pt; margin: 1.1em 0 0.4em; }
+h4 { font-size: 11pt; margin: 0.9em 0 0.3em; }
+.header-section-number { margin-right: 0.35em; }
+
+/* ------------------------------------------------------------ title page */
+.h0-titlepage {
+  height: 250mm;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  text-align: center;
+  break-after: page;
+  page-break-after: always;
+}
+.h0-titlepage p { text-indent: 0; text-align: center; }
+.h0-course, .h0-institute { font-size: 13pt; font-style: italic; }
+.h0-tp-title { margin-top: 18%; }
+.h0-doc-title { font-size: 20pt; font-weight: bold; line-height: 1.25; }
+.h0-subtitle { font-size: 13pt; margin-top: 1.4em !important; }
+.h0-tp-sources { width: 84%; margin: 0 auto; text-align: left; font-size: 10pt; }
+.h0-sources-title { font-weight: bold; text-align: left !important; margin-bottom: 0.4em !important; }
+.h0-sources { display: grid; grid-template-columns: 3.2em 1fr; row-gap: 2px; margin: 0; }
+.h0-sources dt { font-weight: bold; }
+.h0-sources dd { margin: 0; }
+.h0-source-details { color: #777; }
+.h0-tp-bottom p { margin: 0.3em 0; }
+
+/* ------------------------------------------------------------ contents */
+.h0-toc { break-after: page; page-break-after: always; }
+.h0-toc-title { text-align: center !important; text-indent: 0; font-size: 15.5pt; font-weight: bold; margin-bottom: 1em !important; }
+.h0-toc ul { list-style: none; margin: 0; padding-left: 0; }
+.h0-toc > ul > li { font-weight: bold; margin-top: 0.5em; }
+.h0-toc ul ul { padding-left: 2em; font-weight: normal; }
+.h0-toc ul ul li { margin-top: 0.15em; }
+.h0-toc .h0src { display: none; }
+
+/* ------------------------------------------------------------ source anchors */
+sup.h0src {
+  font-family: Arial, "Liberation Sans", sans-serif;
+  font-size: 0.58em;
+  color: #808080;
+  margin-left: 0.06em;
+  vertical-align: 0.75em;
+  line-height: 0;
+  white-space: nowrap;
+}
+.h0src-inline { font-family: Arial, "Liberation Sans", sans-serif; font-size: 0.72em; color: #808080; }
+.unreadable { color: #8a8a8a; }
+
+/* ------------------------------------------------------------ semantic blocks */
+.h0-block { margin: 0.8em 0; }
+.h0-label { font-weight: bold; }
+.definition > p:first-child > .h0-label::before,
+.problem > p:first-child > .h0-label::before { content: "\25B2\2002"; font-size: 0.8em; }
+.definition .h0-block-title, .problem .h0-block-title, .example .h0-block-title,
+.remark .h0-block-title { font-style: italic; }
+.remark .h0-label { font-style: italic; }
+
+.theorem, .lemma, .proposition, .corollary { font-style: italic; }
+.theorem .h0-label, .lemma .h0-label, .proposition .h0-label, .corollary .h0-label,
+.theorem .h0-block-title, .lemma .h0-block-title, .proposition .h0-block-title,
+.corollary .h0-block-title {
+  font-style: normal; font-weight: bold;
+}
+
+.proof, .solution {
+  border-left: 7pt solid var(--bar);
+  padding-left: 9mm;
+  margin: 0.6em 0 0.8em;
+}
+.h0-head { font-weight: bold; margin-bottom: 0.25em; }
+.h0-head .h0-block-title { font-weight: normal; font-style: italic; }
+.h0-head + p { text-indent: 0; }
+
+.editorial, .conflict, .uncertain, .author-question {
+  border-left: 1.5pt solid #b3b3b3;
+  padding-left: 4mm;
+  font-size: 0.92em;
+}
+.editorial .h0-label, .conflict .h0-label, .uncertain .h0-label,
+.author-question .h0-label { color: #4d4d4d; }
+.editorial .h0-block-title, .conflict .h0-block-title, .uncertain .h0-block-title,
+.author-question .h0-block-title { font-style: italic; }
+
+/* ------------------------------------------------------------ lists */
+ul, ol { margin: 0.35em 0; padding-left: 1.8em; }
+li { margin: 0.12em 0; }
+li > p { text-align: justify; }
+
+/* ------------------------------------------------------------ figures and tables */
+figure { margin: 1em auto; text-align: center; break-inside: avoid; }
+figure img { max-width: 100%; height: auto; }
+figcaption, caption { font-size: 0.92em; margin-top: 0.4em; }
+.h0-caption-label { font-weight: bold; }
+img { max-width: 100%; }
+
+table {
+  border-collapse: collapse;
+  margin: 0.9em auto;
+  border-top: 1.2px solid var(--rule);
+  border-bottom: 1.2px solid var(--rule);
+  font-size: 0.97em;
+}
+thead th { border-bottom: 0.7px solid var(--rule); }
+th, td { padding: 0.22em 0.6em; vertical-align: top; }
+caption { caption-side: top; margin-bottom: 0.4em; }
+
+/* ------------------------------------------------------------ code */
+pre {
+  font-size: 9.2pt;
+  line-height: 1.3;
+  border-left: 1.2pt solid #bfbfbf;
+  padding: 0.1em 0 0.1em 3mm;
+  margin: 0.7em 0 0.7em 1mm;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  break-inside: auto;
+}
+div.sourceCode { margin: 0; background: none; }
+pre code { font-size: inherit; }
+
+/* ------------------------------------------------------------ footnotes */
+.footnote-ref { font-size: 0.75em; vertical-align: super; line-height: 0; }
+section.footnotes { font-size: 0.9em; margin-top: 2em; border-top: 0.6px solid #999; }
+section.footnotes hr { display: none; }
+
+blockquote { margin: 0.6em 1.5em; }
+hr { border: none; border-top: 0.6px solid #999; }
+del { text-decoration-thickness: 1px; }

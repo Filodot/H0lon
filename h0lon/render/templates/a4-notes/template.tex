@@ -1,0 +1,455 @@
+$--
+$-- H0lon template "a4-notes" for Pandoc 3.x + XeLaTeX.
+$-- Visual style: port of a4_notes_template.tex (handwritten-notes-parser skill):
+$-- A4, mirrored margins, Times New Roman + Cambria Math, polyglossia (ru + en),
+$-- centered numbered sections, triangle-marked definitions, gray-bar proofs.
+$-- Body mechanics follow the default Pandoc 3.9 LaTeX template.
+$-- Semantic fenced divs are turned into hz* environments by filters/blocks.lua,
+$-- source anchors [[H1:p3]] into \hzsrc{...} by filters/srcrefs.lua.
+$--
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode$for(hyperrefoptions)$,$hyperrefoptions$$endfor$}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\documentclass[$if(fontsize)$$fontsize$$else$11pt$endif$,twoside,a4paper$for(classoption)$,$classoption$$endfor$]{article}
+
+\usepackage{iftex}
+\ifPDFTeX
+  \errmessage{Template a4-notes requires XeLaTeX (fontspec, unicode-math, polyglossia)}
+\fi
+
+% ---------------------------------------------------------------- math and fonts
+\usepackage{amsmath,mathtools}
+\usepackage{fontspec}
+\usepackage{unicode-math}
+\defaultfontfeatures{Scale=MatchLowercase}
+\defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\setmainfont[$for(mainfontoptions)$$mainfontoptions$$sep$,$endfor$]{$if(mainfont)$$mainfont$$else$Times New Roman$endif$}
+\setsansfont[$for(sansfontoptions)$$sansfontoptions$$sep$,$endfor$]{$if(sansfont)$$sansfont$$else$Arial$endif$}
+\setmonofont[$for(monofontoptions)$$monofontoptions$$sep$,$endfor$]{$if(monofont)$$monofont$$else$Consolas$endif$}
+\setmathfont[$for(mathfontoptions)$$mathfontoptions$$sep$,$endfor$]{$if(mathfont)$$mathfont$$else$Cambria Math$endif$}
+% Report glyphs missing from the selected fonts in the log ("Missing character").
+\tracinglostchars=2\relax
+
+\usepackage{polyglossia}
+\setdefaultlanguage{russian}
+\setotherlanguage{english}
+
+% ---------------------------------------------------------------- page layout
+\usepackage[a4paper,inner=25mm,outer=20mm,top=20mm,bottom=22mm,footskip=10mm,headheight=14pt,headsep=5mm$for(geometry)$,$geometry$$endfor$]{geometry}
+\usepackage{microtype}
+\UseMicrotypeSet[protrusion]{basicmath}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{needspace}
+\usepackage{xcolor}
+\usepackage{mdframed}
+\usepackage{fancyhdr}
+\usepackage{etoolbox}
+\usepackage{tocloft}
+\usepackage{caption}
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+
+\setlength{\parindent}{1.25em}
+\setlength{\parskip}{0pt}
+\setlength{\emergencystretch}{1.5em}
+\linespread{$if(linestretch)$$linestretch$$else$1.05$endif$}
+\raggedbottom
+\clubpenalty=5000
+\widowpenalty=5000
+
+\setlist{itemsep=0.15\baselineskip,topsep=0.35\baselineskip,parsep=0pt,partopsep=0pt}
+\setlist[enumerate]{leftmargin=*,widest=9}
+\setlist[itemize]{leftmargin=1.6em}
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+% ---------------------------------------------------------------- running heads
+\newcommand{\HzCourse}{$if(course)$$course$$endif$}
+\newcommand{\HzShortTitle}{$if(short-title)$$short-title$$else$$title$$endif$}
+\newcommand{\hzheadfont}{\footnotesize\color{black!55}}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot[C]{\thepage}
+\ifdefempty{\HzCourse}
+  {\fancyhead[LE,RO]{\hzheadfont\HzShortTitle}}
+  {\fancyhead[LE]{\hzheadfont\HzCourse}\fancyhead[RO]{\hzheadfont\HzShortTitle}}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+\fancypagestyle{plain}{%
+  \fancyhf{}\fancyfoot[C]{\thepage}%
+  \renewcommand{\headrulewidth}{0pt}\renewcommand{\footrulewidth}{0pt}}
+
+% ---------------------------------------------------------------- sections and contents
+$if(numbersections)$
+\setcounter{secnumdepth}{$if(secnumdepth)$$secnumdepth$$else$3$endif$}
+$else$
+\setcounter{secnumdepth}{-\maxdimen} % remove section numbering
+$endif$
+
+\titleformat{\section}{\centering\bfseries\Large}{\thesection.}{0.5em}{}
+\titlespacing*{\section}{0pt}{2.2\baselineskip}{1.2\baselineskip}
+\titleformat{\subsection}{\bfseries\large}{\thesubsection.}{0.5em}{}
+\titlespacing*{\subsection}{0pt}{1.3\baselineskip}{0.6\baselineskip}
+\titleformat{\subsubsection}{\bfseries\normalsize}{\thesubsubsection.}{0.5em}{}
+\titlespacing*{\subsubsection}{0pt}{1.0\baselineskip}{0.4\baselineskip}
+% Unnumbered headings (.unnumbered → \section* + \addcontentsline): hyperref sets no anchor
+% for them, so the contents entry and the bookmark would point at the previous anchor.
+\titleformat{name=\section,numberless}{\centering\bfseries\Large}{}{0pt}{}[\phantomsection]
+\titleformat{name=\subsection,numberless}{\bfseries\large}{}{0pt}{}[\phantomsection]
+\titleformat{name=\subsubsection,numberless}{\bfseries\normalsize}{}{0pt}{}[\phantomsection]
+% Keep a heading together with the start of what follows (tables included).
+\pretocmd{\section}{\Needspace{7\baselineskip}}{}{}
+\pretocmd{\subsection}{\Needspace{5\baselineskip}}{}{}
+\pretocmd{\subsubsection}{\Needspace{4\baselineskip}}{}{}
+
+\renewcommand{\cfttoctitlefont}{\hfill\bfseries\Large}
+\renewcommand{\cftaftertoctitle}{\hfill}
+\setlength{\cftbeforetoctitleskip}{0pt}
+\setlength{\cftaftertoctitleskip}{1.2\baselineskip}
+\setlength{\cftbeforesecskip}{0.55\baselineskip}
+\setlength{\cftsecnumwidth}{2em}
+\setlength{\cftsubsecindent}{2em}
+\setlength{\cftsubsecnumwidth}{2.6em}
+\setlength{\cftsubsubsecindent}{4.6em}
+\setlength{\cftsubsubsecnumwidth}{3.4em}
+\renewcommand{\cftsecleader}{\cftdotfill{\cftdotsep}}
+\renewcommand{\cftsecfont}{\bfseries}
+\renewcommand{\cftsecpagefont}{\bfseries}
+\renewcommand{\cftsecaftersnum}{.}
+\renewcommand{\cftsubsecaftersnum}{.}
+\renewcommand{\cftsubsubsecaftersnum}{.}
+
+% Appendices: a level-1 header with class .appendix emits \hzappendix (once).
+\newcommand{\hzappendixname}{$if(appendix-name)$$appendix-name$$else$Приложение$endif$}
+\newif\ifhzappendix
+\newlength{\hzappnumwidth}
+\newcommand{\hzappendixtoc}{%
+  \renewcommand{\cftsecpresnum}{\hzappendixname~}%
+  \settowidth{\hzappnumwidth}{\bfseries\hzappendixname~Ж.\enspace}%
+  \setlength{\cftsecnumwidth}{\hzappnumwidth}}
+\newcommand{\hzappendix}{%
+  \ifhzappendix\else
+    \global\hzappendixtrue
+    \appendix
+    \renewcommand{\thesection}{\ifnum\value{section}>0 \Asbuk{section}\fi}%
+    \titleformat{\section}{\centering\bfseries\Large}{\hzappendixname~\thesection.}{0.5em}{}%
+    \addtocontents{toc}{\protect\hzappendixtoc}%
+  \fi}
+
+% ---------------------------------------------------------------- semantic blocks
+% Counters are per section: "Определение 2.1." (just "1" before the first section).
+\newcommand{\hzdeclarecounter}[1]{%
+  \newcounter{#1}[section]%
+  \expandafter\renewcommand\csname the#1\endcsname{%
+    \ifnum\value{section}>0 \thesection.\fi\arabic{#1}}}
+\hzdeclarecounter{hzdefinition}
+\hzdeclarecounter{hztheorem}
+\hzdeclarecounter{hzlemma}
+\hzdeclarecounter{hzproposition}
+\hzdeclarecounter{hzcorollary}
+\hzdeclarecounter{hzexample}
+\hzdeclarecounter{hzproblem}
+
+\newcommand{\hzmark}{%
+  \raisebox{0.06ex}{\scalebox{0.7}{\ensuremath{\bigblacktriangleup}}}\enspace}
+
+% Run-in block: #1 counter (empty = unnumbered), #2 label, #3 mark, #4 title, #5 body font.
+% \refstepcounter (the hyperref anchor) comes after \Needspace and \noindent: when the
+% block moves to the next page, links must land there and not at the previous page's foot.
+\newcommand{\hzruninhead}[5]{%
+  \Needspace{3\baselineskip}\par\medskip\noindent
+  \ifstrempty{#1}{}{\refstepcounter{#1}}%
+  #3\textbf{#2\ifstrempty{#1}{}{~\csname the#1\endcsname}.}%
+  \ifstrempty{#4}{}{\enspace\emph{#4.}}\enspace#5\ignorespaces}
+
+\newenvironment{hzdefinition}[1][]
+  {\hzruninhead{hzdefinition}{Определение}{\hzmark}{#1}{}}
+  {\par\medskip}
+\newenvironment{hzproblem}[1][]
+  {\hzruninhead{hzproblem}{Задача}{\hzmark}{#1}{}}
+  {\par\medskip}
+\newenvironment{hzexample}[1][]
+  {\hzruninhead{hzexample}{Пример}{}{#1}{}}
+  {\par\medskip}
+
+% Statements: bold numbered label, italic text.
+\newcommand{\hzstatementhead}[3]{%
+  \Needspace{3\baselineskip}\par\medskip\noindent\refstepcounter{#1}%
+  \textbf{#2~\csname the#1\endcsname.}%
+  \ifstrempty{#3}{}{\enspace\textbf{(#3)}}\enspace\itshape\ignorespaces}
+\newenvironment{hzlemma}[1][]
+  {\hzstatementhead{hzlemma}{Лемма}{#1}}
+  {\par\medskip}
+\newenvironment{hzproposition}[1][]
+  {\hzstatementhead{hzproposition}{Предложение}{#1}}
+  {\par\medskip}
+\newenvironment{hzcorollary}[1][]
+  {\hzstatementhead{hzcorollary}{Следствие}{#1}}
+  {\par\medskip}
+
+% Theorem: label column on the left (breaks across pages like any list item).
+% The anchor (\refstepcounter, vertical mode) follows \Needspace: if the theorem moves to the
+% next page, the anchor moves with it.
+\newenvironment{hztheorem}[1][]
+  {\Needspace{4\baselineskip}\par\medskip\refstepcounter{hztheorem}%
+   \begin{description}[style=multiline,leftmargin=36mm,labelwidth=31mm,labelsep=5mm,
+                       itemsep=0pt,topsep=0pt,partopsep=0pt,font=\normalfont]
+   \item[\textbf{Теорема~\thehztheorem.}\ifstrempty{#1}{}{\newline\textbf{(#1)}}]%
+   \itshape\ignorespaces}
+  {\end{description}\par\medskip}
+
+\newenvironment{hzremark}[1][]
+  {\par\medskip\noindent\textbf{\textit{Замечание.}}%
+   \ifstrempty{#1}{}{\enspace\emph{#1.}}\enspace\ignorespaces}
+  {\par\medskip}
+
+% Proofs and solutions: light-gray bar on the left, breakable across pages.
+\mdfdefinestyle{hzbar}{%
+  topline=false,bottomline=false,rightline=false,leftline=true,
+  linecolor=black!18,linewidth=7pt,
+  innerleftmargin=9mm,innerrightmargin=0pt,
+  innertopmargin=0pt,innerbottommargin=0pt,
+  leftmargin=0pt,rightmargin=0pt,
+  skipabove=0.6\baselineskip,skipbelow=0.8\baselineskip,
+  splittopskip=0pt,splitbottomskip=0pt}
+% The first paragraph after the bar heading is not indented (like after a section title);
+% \noindent followed by a non-paragraph block yields an empty paragraph, which TeX drops.
+\newcommand{\hzbarhead}[2]{%
+  \noindent\textbf{#1}\ifstrempty{#2}{}{\enspace\textit{(#2)}}\par\smallskip
+  \noindent\ignorespaces}
+\newenvironment{hzproof}[1][]
+  {\begin{mdframed}[style=hzbar]\hzbarhead{Доказательство}{#1}}
+  {\end{mdframed}}
+\newenvironment{hzsolution}[1][]
+  {\begin{mdframed}[style=hzbar]\hzbarhead{Решение}{#1}}
+  {\end{mdframed}}
+
+% Service blocks (appendices, Source Docs): thin bar, smaller type, run-in label.
+\mdfdefinestyle{hznote}{%
+  topline=false,bottomline=false,rightline=false,leftline=true,
+  linecolor=black!30,linewidth=1.5pt,
+  innerleftmargin=4mm,innerrightmargin=0pt,
+  innertopmargin=1pt,innerbottommargin=1pt,
+  leftmargin=0pt,rightmargin=0pt,
+  skipabove=0.5\baselineskip,skipbelow=0.6\baselineskip,
+  splittopskip=0pt,splitbottomskip=0pt}
+\newcommand{\hznotehead}[2]{%
+  \small\noindent\textbf{\textcolor{black!70}{#1.}}%
+  \ifstrempty{#2}{}{\enspace\emph{#2.}}\enspace\ignorespaces}
+\newenvironment{hzeditorial}[1][]
+  {\begin{mdframed}[style=hznote]\hznotehead{Редакторское дополнение}{#1}}
+  {\end{mdframed}}
+\newenvironment{hzconflict}[1][]
+  {\begin{mdframed}[style=hznote]\hznotehead{Расхождение источников}{#1}}
+  {\end{mdframed}}
+\newenvironment{hzuncertain}[1][]
+  {\begin{mdframed}[style=hznote]\hznotehead{Требует проверки}{#1}}
+  {\end{mdframed}}
+\newenvironment{hzauthorquestion}[1][]
+  {\begin{mdframed}[style=hznote]\hznotehead{Вопрос автора}{#1}}
+  {\end{mdframed}}
+
+% Compact source anchor: small gray superscript, hidden in contents and PDF bookmarks.
+\DeclareRobustCommand{\hzsrc}[1]{%
+  \kern0.06em\textsuperscript{\textcolor{black!50}{\sffamily\fontsize{6.5pt}{7pt}\selectfont #1}}}
+% Anchor that opens a line (table cell, Source Doc heading): baseline locator.
+\DeclareRobustCommand{\hzsrcinline}[1]{%
+  \textcolor{black!50}{\sffamily\fontsize{7.5pt}{9pt}\selectfont #1}}
+\newcommand{\unreadable}{\textcolor{black!60}{[неразборчиво]}}
+\newcommand{\hzunreadable}[1]{\textcolor{black!60}{#1}}
+
+% ---------------------------------------------------------------- code
+\usepackage{fancyvrb}
+\RecustomVerbatimEnvironment{verbatim}{Verbatim}{fontsize=\small,frame=leftline,
+  framerule=1.2pt,rulecolor=\color{black!25},framesep=3mm,xleftmargin=1mm}
+$if(verbatim-in-note)$
+\VerbatimFootnotes % allow verbatim text in footnotes
+$endif$
+$if(highlighting-macros)$
+$highlighting-macros$
+\RecustomVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\},fontsize=\small,
+  frame=leftline,framerule=1.2pt,rulecolor=\color{black!25},framesep=3mm,xleftmargin=1mm}
+$endif$
+
+% ---------------------------------------------------------------- tables
+\usepackage{longtable,booktabs,array}
+\newcounter{none} % for unnumbered tables
+$if(multirow)$
+\usepackage{multirow}
+$endif$
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
+\captionsetup{font=small,labelfont=bf,labelsep=period}
+% A little air between rows: formulas with \dfrac otherwise touch the next row.
+\renewcommand{\arraystretch}{1.18}
+\setlength{\extrarowheight}{1pt}
+
+% ---------------------------------------------------------------- graphics
+\usepackage{graphicx}
+\makeatletter
+\newsavebox\pandoc@box
+\newcommand*\pandocbounded[1]{% scales image to fit in text height/width
+  \sbox\pandoc@box{#1}%
+  \Gscale@div\@tempa{\textheight}{\dimexpr\ht\pandoc@box+\dp\pandoc@box\relax}%
+  \Gscale@div\@tempb{\linewidth}{\wd\pandoc@box}%
+  \ifdim\@tempb\p@<\@tempa\p@\let\@tempa\@tempb\fi% select the smaller of both
+  \ifdim\@tempa\p@<\p@\scalebox{\@tempa}{\usebox\pandoc@box}%
+  \else\usebox{\pandoc@box}%
+  \fi%
+}
+% Set default figure placement to htbp
+\def\fps@figure{htbp}
+\makeatother
+$if(subfigure)$
+\usepackage{subcaption}
+$endif$
+
+% ---------------------------------------------------------------- strikeout / underline / mark
+% Pandoc emits \st, \ul, \hl (soul). soul 3.x loses Cyrillic under XeLaTeX, so map to ulem.
+\usepackage[normalem]{ulem}
+\newcommand{\st}[1]{\sout{#1}}
+\newcommand{\ul}[1]{\uline{#1}}
+\newcommand{\hl}[1]{\bgroup\markoverwith{\textcolor{yellow!45}{\rule[-.3ex]{2pt}{2.5ex}}}\ULon{#1}}
+
+$if(csl-refs)$
+% ---------------------------------------------------------------- CSL citations
+\NewDocumentCommand\citeproctext{}{}
+\NewDocumentCommand\citeproc{mm}{%
+  \begingroup\def\citeproctext{#2}\cite{#1}\endgroup}
+\makeatletter
+ % allow citations to break across lines
+ \let\@cite@ofmt\@firstofone
+ % avoid brackets around text for \cite:
+ \def\@biblabel#1{}
+ \def\@cite#1#2{{#1\if@tempswa , #2\fi}}
+\makeatother
+\newlength{\cslhangindent}
+\setlength{\cslhangindent}{1.5em}
+\newlength{\csllabelwidth}
+\setlength{\csllabelwidth}{3em}
+\newenvironment{CSLReferences}[2] % #1 hanging-indent, #2 entry-spacing
+ {\begin{list}{}{%
+  \setlength{\itemindent}{0pt}
+  \setlength{\leftmargin}{0pt}
+  \setlength{\parsep}{0pt}
+  % turn on hanging indent if param 1 is 1
+  \ifodd #1
+   \setlength{\leftmargin}{\cslhangindent}
+   \setlength{\itemindent}{-1\cslhangindent}
+  \fi
+  % set entry spacing
+  \setlength{\itemsep}{#2\baselineskip}}}
+ {\end{list}}
+\newcommand{\CSLBlock}[1]{\hfill\break\parbox[t]{\linewidth}{\strut\ignorespaces#1\strut}}
+\newcommand{\CSLLeftMargin}[1]{\parbox[t]{\csllabelwidth}{\strut#1\strut}}
+\newcommand{\CSLRightInline}[1]{\parbox[t]{\linewidth - \csllabelwidth}{\strut#1\strut}}
+\newcommand{\CSLIndent}[1]{\hspace{\cslhangindent}#1}
+$endif$
+
+$for(header-includes)$
+$header-includes$
+$endfor$
+
+% ---------------------------------------------------------------- links and bookmarks
+\usepackage{hyperref}
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{$if(urlstyle)$$urlstyle$$else$same$endif$}
+\hypersetup{
+  hidelinks,
+  bookmarksopen=true,
+  bookmarksopenlevel=1,
+  bookmarksnumbered=true,
+$if(title-meta)$
+  pdftitle={$title-meta$},
+$endif$
+$if(author-meta)$
+  pdfauthor={$author-meta$},
+$endif$
+$if(course)$
+  pdfsubject={$course$},
+$endif$
+$if(keywords)$
+  pdfkeywords={$for(keywords)$$keywords$$sep$, $endfor$},
+$endif$
+  pdflang={ru-RU},
+  pdfcreator={H0lon: Pandoc + XeLaTeX}}
+\pdfstringdefDisableCommands{\def\hzsrc#1{}\def\hzsrcinline#1{}\def\hzunreadable#1{#1}}
+
+\begin{document}
+
+% ---------------------------------------------------------------- title page
+\begin{titlepage}
+  \thispagestyle{empty}
+  \centering
+$if(institute)$
+  {\large $for(institute)$$institute$$sep$\par $endfor$\par}
+  \vspace{0.8\baselineskip}
+$endif$
+$if(course)$
+  {\large\itshape $course$\par}
+$endif$
+  \vspace*{\stretch{1}}
+  {\bfseries\LARGE $title$\par}
+$if(subtitle)$
+  \vspace{1.5\baselineskip}
+  {\large $subtitle$\par}
+$endif$
+  \vspace*{\stretch{1.2}}
+$if(h0lon-sources)$
+  \begin{minipage}{0.84\textwidth}
+    \small
+    \textbf{Источники}\par\smallskip
+    \begin{description}[leftmargin=3.2em,labelwidth=2.7em,labelsep=0.5em,
+                        font=\normalfont\bfseries,itemsep=1pt,topsep=0pt]
+$for(h0lon-sources)$
+      \item[$h0lon-sources.id$] $h0lon-sources.title$$if(h0lon-sources.details)$\enspace\textcolor{black!55}{($h0lon-sources.details$)}$endif$
+$endfor$
+    \end{description}
+  \end{minipage}\par
+  \vspace*{\stretch{0.6}}
+$endif$
+$if(author)$
+  Составитель: $for(author)$$author$$sep$, $endfor$\par
+  \medskip
+$endif$
+  $if(date)$$date$$else$\today$endif$\par
+\end{titlepage}
+
+$for(include-before)$
+$include-before$
+
+$endfor$
+$if(toc)$
+% ---------------------------------------------------------------- contents
+$if(toc-title)$
+\renewcommand*\contentsname{$toc-title$}
+$endif$
+{%
+  \DeclareRobustCommand{\hzsrc}[1]{}%
+  \DeclareRobustCommand{\hzsrcinline}[1]{}%
+  \setcounter{tocdepth}{$if(toc-depth)$$toc-depth$$else$2$endif$}%
+  \tableofcontents
+}
+\clearpage
+$endif$
+$if(lof)$
+\listoffigures
+$endif$
+$if(lot)$
+\listoftables
+$endif$
+
+$body$
+
+$for(include-after)$
+$include-after$
+
+$endfor$
+\end{document}

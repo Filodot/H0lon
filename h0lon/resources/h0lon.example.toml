@@ -1,0 +1,75 @@
+# Конфигурация H0lon. Скопируйте в h0lon.toml (или выполните `h0lon init`) и поправьте под себя.
+# Поиск файла: --config → переменная H0LON_CONFIG → ./h0lon.toml → каталог конфигурации пользователя
+# (Windows: %APPDATA%\H0lon\h0lon.toml). Любой ключ можно переопределить переменной окружения
+# вида H0LON_<РАЗДЕЛ>__<КЛЮЧ>, например H0LON_AGENTS__DEFAULT=codex.
+
+[general]
+language = "ru"
+# Каталог рабочих областей тем. Пусто — ~/Konspekty.
+workspaces = ""
+# Каталог служебных данных (журнал расхода, пользовательские шаблоны, тестовые прогоны). Пусто — по умолчанию ОС.
+state_dir = ""
+review_gate = true            # пауза для проверки извлечения перед синтезом; выключатель виден в UI
+git_per_topic = true          # каждая тема — git-репозиторий, каждая сборка — коммит
+keep_video = false            # удалять видео после извлечения аудио и кадров
+
+[agents]
+default = "claude"            # claude | codex
+fallback = "codex"            # запасной агент при лимитах и сбоях; "" — без запасного
+parallel_runs = 2
+max_validation_retries = 2    # повторы с обратной связью, если результат не прошёл проверку
+
+[agents.claude]
+bin = "claude"                # имя на PATH, полный путь или список argv
+model_strong = "opus"
+model_light = "sonnet"
+effort_strong = "high"        # low | medium | high | xhigh | max
+effort_light = "low"
+max_turns = 40
+timeout_s = 1800
+allow_api_key = false         # false — убирать ANTHROPIC_API_KEY из окружения, чтобы работала подписка
+extra_args = []
+
+[agents.codex]
+bin = "codex"                 # для npm-установки раннер сам находит нативный codex.exe
+model_strong = ""             # пусто — модель из ~/.codex/config.toml
+model_light = ""
+effort_strong = "high"        # model_reasoning_effort
+effort_light = "low"
+sandbox = "workspace-write"
+timeout_s = 1800
+extra_args = []
+
+[stages]                      # агент по этапам: "auto" = agents.default с переключением на agents.fallback
+handwriting = "auto"
+slides_frames = "auto"
+transcript_fix = "auto"
+synthesis = "auto"
+coverage = "auto"
+variants = "auto"
+
+[queue]
+unattended = false
+keep_awake = true
+
+[compute]
+asr = "auto"                  # local-gpu | local-cpu | colab | api (позже)
+asr_model = "large-v3"
+colab_url = ""
+
+[render]
+engine = "xelatex"            # xelatex | html
+template = "a4-notes"
+fallback_html = true          # при неудаче XeLaTeX собрать PDF через HTML и браузер
+passes = 3                    # максимум проходов XeLaTeX
+browser = "auto"              # auto | edge | chrome | chromium | путь к исполняемому файлу
+pandoc = ""                   # пусто — PATH, затем pandoc из пакета pypandoc-binary
+xelatex = ""                  # пусто — PATH, затем стандартные каталоги MiKTeX/TeX Live
+main_font = "Times New Roman"
+sans_font = "Arial"
+mono_font = "Consolas"
+math_font = "Cambria Math"
+
+[api]                         # будущее (M8)
+enabled = false
+base_url = "https://api.proxyapi.ru/v1"

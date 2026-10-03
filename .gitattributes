@@ -1,0 +1,39 @@
+# Line endings: LF in the repository and in working copies on every OS
+# (overrides core.autocrlf, which Git for Windows enables by default).
+* text=auto eol=lf
+
+# Windows scripts must keep CRLF.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Diff drivers for nicer hunk headers.
+*.py  text diff=python
+*.md  text diff=markdown
+*.tex text diff=tex
+
+# Generated lock file: collapse in GitHub diffs.
+uv.lock linguist-generated=true
+
+# Binary files: no line-ending conversion, no textual diffs.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.pdf   binary
+*.ttf   binary
+*.otf   binary
+*.woff  binary
+*.woff2 binary
+*.zip   binary
+*.gz    binary
+*.docx  binary
+*.pptx  binary
+*.mp3   binary
+*.m4a   binary
+*.wav   binary
+*.mp4   binary
+*.mkv   binary
+*.webm  binary

@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.uv/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Локальная конфигурация и данные пользователя (вне репозитория по дизайну)
+h0lon.toml
+*.local.toml
+.env
+.env.*
+Konspekty/
+workspaces/
+runs/
+*.log
+calibration.json
+
+# Ключи и учётные данные — никогда
+*.key
+*.pem
+secrets*/
+
+# LaTeX
+*.aux
+*.toc
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.bbl
+*.blg
+
+# Медиа и большие артефакты сборок
+*.mp4
+*.mkv
+*.webm
+*.m4a
+*.wav
+
+# IDE / ОС
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Сборка PDF: каталоги --keep-build и результат проверочного рендера фикстур
+*.build/
+tests/fixtures/*.pdf

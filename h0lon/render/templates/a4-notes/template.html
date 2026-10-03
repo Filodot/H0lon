@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="$if(lang)$$lang$$else$ru$endif$">
+<head>
+  <meta charset="utf-8" />
+  <!-- Everything is embedded by Pandoc (data: URIs, inline styles): the browser loads nothing,
+       runs nothing. sanitize.lua already drops raw HTML; this is the second line of defence. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline' data:; font-src data:; media-src data:; frame-src 'none'; object-src 'none'; script-src 'none'; base-uri 'none'; form-action 'none'" />
+  <meta name="generator" content="H0lon (Pandoc)" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+$for(author-meta)$
+  <meta name="author" content="$author-meta$" />
+$endfor$
+$if(date-meta)$
+  <meta name="dcterms.date" content="$date-meta$" />
+$endif$
+  <title>$pagetitle$</title>
+$for(css)$
+  <link rel="stylesheet" href="$css$" />
+$endfor$
+  <style>
+    @page :left { @top-left { content: $h0lon-head-left$; } }
+    @page :right { @top-right { content: $h0lon-head-right$; } }
+    @page :first { @top-left { content: none; } @top-right { content: none; } @bottom-center { content: none; } }
+$if(mainfont)$
+    html { font-family: "$mainfont$", serif; }
+$endif$
+$if(monofont)$
+    code, pre, kbd { font-family: "$monofont$", monospace; }
+$endif$
+$if(mathfont)$
+    math { font-family: "$mathfont$", math; }
+$endif$
+$if(sansfont)$
+    sup.h0src, .h0src-inline { font-family: "$sansfont$", sans-serif; }
+$endif$
+$if(highlighting-css)$
+$highlighting-css$
+$endif$
+  </style>
+$for(header-includes)$
+  $header-includes$
+$endfor$
+$if(math)$
+  $math$
+$endif$
+</head>
+<body>
+<section class="h0-titlepage">
+  <div class="h0-tp-top">
+$if(institute)$
+    <p class="h0-institute">$for(institute)$$institute$$sep$<br />$endfor$</p>
+$endif$
+$if(course)$
+    <p class="h0-course">$course$</p>
+$endif$
+  </div>
+  <div class="h0-tp-title">
+    <p class="h0-doc-title">$title$</p>
+$if(subtitle)$
+    <p class="h0-subtitle">$subtitle$</p>
+$endif$
+  </div>
+$if(h0lon-sources)$
+  <div class="h0-tp-sources">
+    <p class="h0-sources-title">Источники</p>
+    <dl class="h0-sources">
+$for(h0lon-sources)$
+      <dt>$h0lon-sources.id$</dt>
+      <dd>$h0lon-sources.title$$if(h0lon-sources.details)$ <span class="h0-source-details">($h0lon-sources.details$)</span>$endif$</dd>
+$endfor$
+    </dl>
+  </div>
+$endif$
+  <div class="h0-tp-bottom">
+$if(author)$
+    <p class="h0-author">Составитель: $for(author)$$author$$sep$, $endfor$</p>
+$endif$
+$if(date)$
+    <p class="h0-date">$date$</p>
+$endif$
+  </div>
+</section>
+$for(include-before)$
+$include-before$
+$endfor$
+$if(toc)$
+<nav id="TOC" class="h0-toc" role="doc-toc">
+  <p class="h0-toc-title">$if(toc-title)$$toc-title$$else$Содержание$endif$</p>
+$table-of-contents$
+</nav>
+$endif$
+<main>
+$body$
+</main>
+$for(include-after)$
+$include-after$
+$endfor$
+</body>
+</html>
