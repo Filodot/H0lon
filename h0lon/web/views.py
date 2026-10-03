@@ -437,6 +437,7 @@ def _coverage_view(status: dict[str, Any]) -> dict[str, Any] | None:
         "covered": covered,
         "total": total,
         "uncovered": cov.get("uncovered") or 0,
+        "excluded": cov.get("excluded") or 0,
         "rounds": cov.get("rounds") or 0,
     }
 

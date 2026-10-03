@@ -704,7 +704,17 @@ def topic_status(settings: Settings, topic_dir: Path) -> dict[str, Any]:
                 "total": data.get("total"),
                 "covered": data.get("covered"),
                 "ratio": data.get("ratio"),
-                "uncovered": len(data.get("uncovered") or []),
+                # truly uncovered: no verdict or «missing»; admin/duplicate count as covered
+                "uncovered": sum(
+                    1
+                    for u in data.get("uncovered") or []
+                    if (u or {}).get("verdict") in (None, "missing", "unknown")
+                ),
+                "excluded": sum(
+                    1
+                    for u in data.get("uncovered") or []
+                    if (u or {}).get("verdict") in ("admin", "duplicate")
+                ),
                 "rounds": data.get("rounds"),
             }
         except (OSError, ValueError):
@@ -812,7 +822,8 @@ def print_status(status: dict[str, Any], *, console: Console) -> None:
         pct = percent(int(cov.get("covered") or 0), int(cov.get("total") or 0))
         console.print(
             f"Покрытие: [bold]{pct}[/bold] ({cov['covered']} из {cov['total']} блоков), "
-            f"непокрытых: {cov['uncovered']}, кругов дополнения: {cov.get('rounds') or 0}"
+            f"непокрытых: {cov['uncovered']}, служебных и дублей: {cov.get('excluded') or 0}, "
+            f"кругов дополнения: {cov.get('rounds') or 0}"
         )
     else:
         console.print("Покрытие: [dim]ещё не считалось[/dim]")

@@ -179,7 +179,7 @@
     </div>
     {% if coverage %}
     <p class="coverage">Покрытие источников: <strong>{{ coverage.percent }}</strong>
-      <span class="muted">({{ coverage.covered }} из {{ coverage.total }} блоков, непокрытых: {{ coverage.uncovered }})</span>
+      <span class="muted">({{ coverage.covered }} из {{ coverage.total }} блоков, непокрытых: {{ coverage.uncovered }}{% if coverage.excluded %}, служебных и дублей: {{ coverage.excluded }}{% endif %})</span>
       <meter min="0" max="100" value="{{ coverage.value }}" optimum="100" low="90" high="99.9"></meter>
     </p>
     {% endif %}
