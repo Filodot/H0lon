@@ -10,8 +10,11 @@ S4/S5 fill them.
 Chapters and sections without blocks get a heading-only file written by code.
 
 Cache: one record per group in `sections.meta.json` (key = its inputs + prompt + model), so groups
-whose inputs did not change are not rewritten. Files: `synthesis/inputs/<id>.blocks.md`,
-`synthesis/sections/<id>.md` and `<id>.notes.json`.
+whose inputs did not change are not rewritten. For that the groups of the previous run are kept
+while they are valid (a section added in the middle must not shift every later group), and a
+group depends only on the terms of the sources it draws on (a new source adds terms to the
+glossary, which must not rewrite old sections); records of the older key format are adopted.
+Files: `synthesis/inputs/<id>.blocks.md`, `synthesis/sections/<id>.md` and `<id>.notes.json`.
 """
 
 from __future__ import annotations
@@ -46,7 +49,13 @@ from h0lon.synth.common import (
     write_meta,
 )
 from h0lon.synth.model import BuildContext, Outline, OutlineSection, StageResult
-from h0lon.synth.outline import ensure_terms, inputs_dir, render_outline_md
+from h0lon.synth.outline import (
+    TERMS_PREV_FILE,
+    ensure_terms,
+    inputs_dir,
+    render_outline_md,
+    terms_for_sources,
+)
 
 STAGE = "sections"
 MAX_CHARS = 60_000  # blocks per group (decision A4)
@@ -148,26 +157,17 @@ def section_size(section: OutlineSection, blocks: Mapping[str, Block]) -> int:
     return sum(len(blocks[b].md) for b in section_blocks(section, blocks))
 
 
-def plan_groups(
-    outline: Outline,
+def _pack(
+    sections: Sequence[OutlineSection],
     blocks: Mapping[str, Block],
-    *,
-    max_chars: int = MAX_CHARS,
-    max_sections: int = MAX_SECTIONS,
+    max_chars: int,
+    max_sections: int,
 ) -> list[list[OutlineSection]]:
-    """Consecutive sections with blocks packed into groups (decision A4).
-
-    A group has at most `max_sections` sections and at most `max_chars` characters of blocks;
-    a section above the limit makes a group of its own. Sections without blocks are not part of
-    any group (the code writes their files).
-    """
-    max_sections = max(1, max_sections)
+    """Greedy packing of consecutive sections that have blocks (see `plan_groups`)."""
     groups: list[list[OutlineSection]] = []
     current: list[OutlineSection] = []
     size = 0
-    for section in outline.sections:
-        if not section_blocks(section, blocks):
-            continue
+    for section in sections:
         n = section_size(section, blocks)
         if current and (len(current) >= max_sections or size + n > max_chars):
             groups.append(current)
@@ -179,6 +179,73 @@ def plan_groups(
             current, size = [], 0
     if current:
         groups.append(current)
+    return groups
+
+
+def _kept_groups(
+    leaves: Sequence[OutlineSection],
+    blocks: Mapping[str, Block],
+    keep: Iterable[Sequence[str]],
+    max_chars: int,
+    max_sections: int,
+) -> dict[int, list[OutlineSection]]:
+    """Groups of the previous run that are still valid, by the position of their first section."""
+    position = {s.id: i for i, s in enumerate(leaves)}
+    kept: dict[int, list[OutlineSection]] = {}
+    taken: set[int] = set()
+    for ids in keep:
+        ids = list(ids)
+        if not ids or len(ids) > max_sections or any(sid not in position for sid in ids):
+            continue
+        first = position[ids[0]]
+        places = list(range(first, first + len(ids)))
+        if [position[sid] for sid in ids] != places or taken & set(places):
+            continue  # a section is gone, moved, or has a new one between its neighbours
+        group = list(leaves[first : first + len(ids)])
+        if len(group) > 1 and sum(section_size(s, blocks) for s in group) > max_chars:
+            continue  # grown over the limit
+        kept[first] = group
+        taken.update(places)
+    return kept
+
+
+def plan_groups(
+    outline: Outline,
+    blocks: Mapping[str, Block],
+    *,
+    max_chars: int = MAX_CHARS,
+    max_sections: int = MAX_SECTIONS,
+    keep: Iterable[Sequence[str]] = (),
+) -> list[list[OutlineSection]]:
+    """Consecutive sections with blocks packed into groups (decision A4).
+
+    A group has at most `max_sections` sections and at most `max_chars` characters of blocks;
+    a section above the limit makes a group of its own. Sections without blocks are not part of
+    any group (the code writes their files).
+
+    `keep`: the section ids of the groups of the previous run. A previous group stays as it was
+    while it is valid (all its sections are there, next to each other, in the same order, and the
+    group still fits the limits); the other sections are packed as above, run by run between the
+    kept groups. Without it a section added in the middle of the topic would shift every group
+    after it, and all of them would be written again.
+    """
+    max_sections = max(1, max_sections)
+    leaves = [s for s in outline.sections if section_blocks(s, blocks)]
+    kept = _kept_groups(leaves, blocks, keep, max_chars, max_sections)
+    groups: list[list[OutlineSection]] = []
+    run: list[OutlineSection] = []
+    i = 0
+    while i < len(leaves):
+        group = kept.get(i)
+        if group is None:
+            run.append(leaves[i])
+            i += 1
+            continue
+        groups += _pack(run, blocks, max_chars, max_sections)
+        run = []
+        groups.append(group)
+        i += len(group)
+    groups += _pack(run, blocks, max_chars, max_sections)
     return groups
 
 
@@ -622,6 +689,73 @@ def _group_key(
     outline: Outline,
     paths: Mapping[str, Path],
     glossary: Path,
+    blocks: Mapping[str, Block],
+) -> str:
+    """Cache key of a group: its prompt, model, section specs, block files and the part of the
+    terms file for the sources it draws on. The terms of other sources are left out on purpose:
+    a new source adds its terms to every run of S1, and that must not rewrite the old sections."""
+    sources = {blocks[b].source for s in group for b in section_blocks(s, blocks)}
+    text = glossary.read_text(encoding="utf-8") if glossary.is_file() else ""
+    return _key_of(ctx, group, outline, paths, terms_for_sources(text, sources))
+
+
+def _previous_groups(ctx: BuildContext) -> list[list[str]]:
+    """Section ids of the groups that sections.meta.json remembers (finished ones only)."""
+    groups = (read_meta(ctx, STAGE) or {}).get("groups") or {}
+    return [
+        [str(s) for s in rec.get("sections") or []]
+        for rec in groups.values()
+        if isinstance(rec, dict) and rec.get("ok")
+    ]
+
+
+def _legacy_group_key(
+    ctx: BuildContext,
+    group: Sequence[OutlineSection],
+    outline: Outline,
+    paths: Mapping[str, Path],
+    glossary: Path,
+) -> str:
+    """The key of versions before the incremental update (the whole terms file in it). A group
+    record stored under it is still valid and is adopted, so an upgrade rewrites nothing."""
+    return _key_of(ctx, group, outline, paths, glossary)
+
+
+def _adopt_legacy(
+    ctx: BuildContext,
+    group: Sequence[OutlineSection],
+    outline: Outline,
+    paths: Mapping[str, Path],
+    glossary: Path,
+    prev_terms: Path,
+    blocks: Mapping[str, Block],
+) -> dict | None:
+    """The record of a group stored under a key of the older format, or None.
+
+    Such a record is valid when the group's inputs are unchanged and the glossary it was written
+    with is the one now, or the previous one (`terms.prev.md`, kept by S1) with the parts of the
+    group's own sources equal to the current ones: the glossary may have grown since by the terms
+    of a new source.
+    """
+    candidates = [glossary]
+    if prev_terms.is_file() and glossary.is_file():
+        sources = {blocks[b].source for s in group for b in section_blocks(s, blocks)}
+        before = terms_for_sources(prev_terms.read_text(encoding="utf-8"), sources)
+        if before == terms_for_sources(glossary.read_text(encoding="utf-8"), sources):
+            candidates.append(prev_terms)
+    for candidate in candidates:
+        record = _group_cached(ctx, group, _legacy_group_key(ctx, group, outline, paths, candidate))
+        if record is not None:
+            return record
+    return None
+
+
+def _key_of(
+    ctx: BuildContext,
+    group: Sequence[OutlineSection],
+    outline: Outline,
+    paths: Mapping[str, Path],
+    glossary: str | Path,
 ) -> str:
     titles = {s.id: s.title for s in outline.sections}
     specs = [
@@ -685,11 +819,16 @@ def run_sections(
     sdir.mkdir(parents=True, exist_ok=True)
     glossary = ensure_terms(ctx, mapping)
 
-    groups = plan_groups(outline, mapping, max_chars=MAX_CHARS, max_sections=MAX_SECTIONS)
+    # The groups of the previous run stay as they were while they are valid (see plan_groups);
+    # --force plans from scratch.
+    previous = [] if ctx.force else _previous_groups(ctx)
+    groups = plan_groups(
+        outline, mapping, max_chars=MAX_CHARS, max_sections=MAX_SECTIONS, keep=previous
+    )
     writable = {s.id for g in groups for s in g}
     heading_only = [s for s in outline.sections if s.id not in writable]
     paths = {s.id: prepare_section_inputs(ctx, s, mapping) for g in groups for s in g}
-    keys = [_group_key(ctx, g, outline, paths, glossary) for g in groups]
+    keys = [_group_key(ctx, g, outline, paths, glossary, mapping) for g in groups]
     stage_k = stage_key(pid, model, keys, [heading_only_text(s) for s in heading_only])
     outputs = [sdir / f"{s.id}.md" for s in outline.sections]
     outputs += [sdir / f"{i}.notes.json" for i in writable]
@@ -715,8 +854,13 @@ def run_sections(
     total = len(groups)
     cached_records: dict[int, dict] = {}
     pending: list[int] = []
+    prev_terms = inputs_dir(ctx) / TERMS_PREV_FILE
     for i, (group, key) in enumerate(zip(groups, keys, strict=True)):
         record = _group_cached(ctx, group, key)
+        if record is None:
+            record = _adopt_legacy(ctx, group, outline, paths, glossary, prev_terms, mapping)
+            if record is not None:
+                _store_group(ctx, key, record)  # the same inputs, an older key format
         if record is not None:
             cached_records[i] = record
         else:

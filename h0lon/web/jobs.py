@@ -2,7 +2,8 @@
 
 `extract`, `build`, `approve` and `variant` run in worker threads of the server process, through
 the same functions as the CLI (`extract_topic`, `build_topic`, `approve_topic`, `run_variant`).
-Rules:
+`queue` is the build queue (`h0lon.queue.run_queue`): one job that works through the queued topics
+one by one; while it builds a topic, that topic counts as busy for every other job. Rules:
 
 - one active (queued or running) job per topic; a second `start` raises `TopicBusyError`;
 - at most `agents.parallel_runs` jobs run at once, the rest wait in a FIFO queue («queued»);
@@ -39,7 +40,8 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("h0lon.web")
 
-JOB_KINDS = ("extract", "build", "approve", "variant")
+JOB_KINDS = ("extract", "build", "approve", "variant", "queue")
+QUEUE_TOPIC = "queue"  # `Job.topic` of the queue job (it belongs to no topic)
 ACTIVE_STATUSES = ("queued", "running")
 FINISHED_STATUSES = ("done", "failed", "stopped")
 KIND_TITLES = {
@@ -47,6 +49,7 @@ KIND_TITLES = {
     "build": "Сборка мастер-конспекта",
     "approve": "Одобрение извлечения",
     "variant": "Вариация",
+    "queue": "Очередь сборок",
 }
 STATUS_LABELS = {
     "queued": "в очереди",
@@ -109,6 +112,10 @@ class Job:
         self.started: float | None = None
         self.finished: float | None = None
         self.cancel_requested = False
+        # Topics the job is working on besides `topic_dir` (the queue job: the topic of the item
+        # it runs now), and the manager that owns the job (set by `JobManager.start`).
+        self.extra_dirs: list[Path] = []
+        self.manager: JobManager | None = None
         self._max_events = max(1, max_events)
         self._lock = threading.Lock()
 
@@ -216,8 +223,13 @@ class JobManager:
             jobs = [self._jobs[i] for i in reversed(self._order)]
         if topic_dir is not None:
             key = _topic_key(topic_dir)
-            jobs = [j for j in jobs if _topic_key(j.topic_dir) == key]
+            jobs = [j for j in jobs if _touches(j, key)]
         return jobs
+
+    def queue_job(self) -> Job | None:
+        """The running queue job, else the latest one."""
+        jobs = [j for j in self.recent() if j.kind == "queue"]
+        return next((j for j in jobs if j.active), jobs[0] if jobs else None)
 
     def active_for(self, topic_dir: Path) -> Job | None:
         return next((j for j in self.recent(topic_dir) if j.active), None)
@@ -238,8 +250,7 @@ class JobManager:
                 (
                     self._jobs[i]
                     for i in reversed(self._order)
-                    if self._jobs[i].active
-                    and _topic_key(self._jobs[i].topic_dir) == _topic_key(topic_dir)
+                    if self._jobs[i].active and _touches(self._jobs[i], _topic_key(topic_dir))
                 ),
                 None,
             )
@@ -253,6 +264,7 @@ class JobManager:
                 params=params,
                 max_events=self.max_events,
             )
+            job.manager = self
             self._jobs[job.id] = job
             self._order.append(job.id)
             self._queue.append(job)
@@ -263,6 +275,30 @@ class JobManager:
             self._threads[job.id] = thread
         thread.start()
         return job
+
+    def start_queue(self, *, unattended: bool = False) -> Job:
+        """Start the queue job. Raises `TopicBusyError` when one is already active."""
+        folder = Path(self.settings.general.state_path) / QUEUE_TOPIC
+        return self.start(QUEUE_TOPIC, folder, "queue", unattended=unattended)
+
+    def claim_topic(self, job: Job, topic_dir: Path) -> str | None:
+        """For the queue job: reserve `topic_dir` for the item it is about to run. Returns the
+        reason (Russian) when another job is active on that topic, else None."""
+        key = _topic_key(topic_dir)
+        with self._cond:
+            for i in reversed(self._order):
+                other = self._jobs[i]
+                if other is not job and other.active and _touches(other, key):
+                    return (
+                        f"для темы уже выполняется задача «{other.title}» "
+                        f"({STATUS_LABELS[other.status]})"
+                    )
+            job.extra_dirs = [Path(topic_dir)]
+        return None
+
+    def release_topic(self, job: Job) -> None:
+        with self._cond:
+            job.extra_dirs = []
 
     def cancel(self, job_id: str) -> bool:
         """Request a soft stop. Returns False if the job is unknown or already finished."""
@@ -370,6 +406,11 @@ def _topic_key(topic_dir: Path) -> str:
         return os.path.normcase(str(Path(topic_dir).resolve()))
     except OSError:
         return os.path.normcase(str(topic_dir))
+
+
+def _touches(job: Job, key: str) -> bool:
+    """The job runs on the topic with this `_topic_key` (its own, or the queue item's)."""
+    return _topic_key(job.topic_dir) == key or any(_topic_key(d) == key for d in job.extra_dirs)
 
 
 def _reset_cooling() -> None:
@@ -557,9 +598,35 @@ def _run_variant(settings: Settings, job: Job) -> tuple[str, dict[str, Any]]:
     return ("done" if result.ok else "failed"), data
 
 
+def _run_queue(settings: Settings, job: Job) -> tuple[str, dict[str, Any]]:
+    from h0lon import queue as queue_mod
+
+    manager = job.manager
+    try:
+        report = queue_mod.run_queue(
+            settings,
+            unattended=bool(job.params.get("unattended")),
+            on_event=job.add_event,
+            should_stop=lambda: job.cancel_requested,
+            claim=(lambda topic_dir: manager.claim_topic(job, topic_dir)) if manager else None,
+            release=(lambda topic_dir: manager.release_topic(job)) if manager else None,
+        )
+    except queue_mod.QueueError as exc:
+        job.add_event(str(exc))
+        return "failed", {"ok": False, "message": str(exc)}
+    data = report.to_dict()
+    data["message"] = report.message
+    job.add_event(report.message)
+    if report.stopped in ("cancelled", "limit"):
+        data["reason"] = report.stopped
+        return "stopped", data
+    return ("done" if report.ok else "failed"), data
+
+
 _RUNNERS: dict[str, Callable[[Settings, Job], tuple[str, dict[str, Any]]]] = {
     "extract": _run_extract,
     "build": _run_build,
     "approve": _run_approve,
     "variant": _run_variant,
+    "queue": _run_queue,
 }

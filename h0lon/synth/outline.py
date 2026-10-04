@@ -7,8 +7,16 @@ files are placed into out/ as a seed, so the agent edits them in place). What th
 wrong after the retries is repaired by code when that is safe (duplicates, unknown ids, a few
 unassigned blocks) and is an error of the stage otherwise.
 
-Files: `<topic>/synthesis/inputs/{summaries,blocks_index,terms}.md`, `outline.json`, `outline.md`,
-`outline.meta.json` (the stage cache).
+Incremental mode (docs/ARCHITECTURE.md, «Инкрементальные обновления»): when `outline.json` already
+exists and the topic got new blocks while every block of that outline is still there, the agent runs
+with the prompt `outline_update@<version>.md` on the current outline plus an index of the new blocks
+only. The code checks that all old sections (id, title, level, parent, order) and all old block
+assignments are kept and every new block is placed, retries with feedback and repairs what is safe;
+when the update still fails, the structure is rebuilt by the ordinary S1 with a warning. With
+`ctx.force` (`--force`, `--from outline`), or when old blocks are gone, S1 runs the ordinary way.
+
+Files: `<topic>/synthesis/inputs/{summaries,blocks_index,terms,new_blocks_index}.md`,
+`outline.json`, `outline.md`, `outline.meta.json` (the stage cache).
 """
 
 from __future__ import annotations
@@ -17,6 +25,7 @@ import json
 import math
 import re
 import time
+from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -46,8 +55,12 @@ INPUTS_DIR = "inputs"
 SUMMARIES_FILE = "summaries.md"
 BLOCKS_INDEX_FILE = "blocks_index.md"
 TERMS_FILE = "terms.md"
+TERMS_PREV_FILE = "terms.prev.md"  # terms.md as it was before the last change
 OUTLINE_JSON = "outline.json"
 OUTLINE_MD = "outline.md"
+OUTLINE_AGENT_MD = "outline.agent.md"
+NEW_BLOCKS_INDEX_FILE = "new_blocks_index.md"
+UPDATE_PROMPT = "outline_update"
 
 INDEX_TEXT_CHARS = 160  # text of a block in blocks_index.md
 MAX_RETRIES = 2  # repeated runs after the first one (new bundle, feedback, seed)
@@ -278,6 +291,33 @@ def build_terms_md(topic_dir: Path, groups: Sequence[_SourceBlocks]) -> str:
     return "\n".join(parts)
 
 
+_TERMS_SOURCE_RE = re.compile(r"^##\s+([A-Z][0-9]+)\s+—\s")
+
+
+def terms_for_sources(text: str, source_ids: Iterable[str]) -> str:
+    """The part of terms.md that a group of sections depends on: the head of the file and the
+    `## <ID> — …` parts of the given sources (the others are cut).
+
+    Used in the cache key of S2 groups, so that terms of a source a group does not draw on do
+    not make it stale (a new source must not rewrite every old section). Blank lines around the
+    parts do not count: a part keeps its text when another one is added after it. A text without
+    `## <ID> — …` parts is returned as it is.
+    """
+    wanted = set(source_ids)
+    parts: list[tuple[str | None, list[str]]] = [
+        (None, [])
+    ]  # (source id or None for the head, lines)
+    in_fence = False
+    for line in text.splitlines():
+        if _FENCE_RE.match(line):
+            in_fence = not in_fence
+        elif not in_fence and (m := _TERMS_SOURCE_RE.match(line)):
+            parts.append((m.group(1), []))
+        parts[-1][1].append(line)
+    chunks = ["\n".join(lines).strip("\n") for sid, lines in parts if sid is None or sid in wanted]
+    return "\n\n".join(chunk for chunk in chunks if chunk)
+
+
 def prepare_inputs(
     ctx: BuildContext,
     blocks: Mapping[str, Block] | Iterable[Block],
@@ -294,7 +334,17 @@ def prepare_inputs(
     }
     _write(paths["summaries"], build_summaries_md(ctx.topic_dir, groups))
     _write(paths["blocks_index"], build_blocks_index_md(groups))
-    _write(paths["terms"], build_terms_md(ctx.topic_dir, groups))
+    terms = build_terms_md(ctx.topic_dir, groups)
+    if not terms.endswith("\n"):
+        terms += "\n"
+    try:
+        before = paths["terms"].read_text(encoding="utf-8")
+    except OSError:
+        before = None
+    if before is not None and before != terms:
+        # S2 may still hold section texts written under the old glossary (see sections.py)
+        _write(root / TERMS_PREV_FILE, before)
+    _write(paths["terms"], terms)
     return paths
 
 
@@ -413,7 +463,7 @@ def render_outline_md(outline: Outline) -> str:
 
 @dataclass(frozen=True)
 class Problem:
-    kind: str  # structure | missing | unknown | duplicate | both | reason
+    kind: str  # structure | preserve | missing | unknown | duplicate | both | reason
     text: str  # Russian, shown to the agent
     count: int = 1  # blocks involved (structure problems count as one)
 
@@ -429,14 +479,16 @@ class OutlineCheck:
 
     @property
     def structural(self) -> list[Problem]:
-        return [p for p in self.problems if p.kind == "structure"]
+        """Problems that code does not repair: a broken structure, or (update mode) a changed
+        old outline."""
+        return [p for p in self.problems if p.kind in ("structure", "preserve")]
 
     @property
     def score(self) -> tuple[int, int]:
         """Lower is better: (structure problems, blocks with problems)."""
         return (
             len(self.structural),
-            sum(p.count for p in self.problems if p.kind != "structure"),
+            sum(p.count for p in self.problems if p.kind not in ("structure", "preserve")),
         )
 
 
@@ -678,9 +730,13 @@ def autofill_missing(
     ]
 
 
-def autofill_limit(blocks: Mapping[str, Block]) -> int:
-    """How many unassigned blocks count as «few» (code adds them instead of failing)."""
-    content = sum(1 for b in blocks.values() if not is_admin(b))
+def autofill_limit(blocks: Mapping[str, Block], *, scope: int | None = None) -> int:
+    """How many unassigned blocks count as «few» (code adds them instead of failing).
+
+    `scope`: the number of content blocks the share is taken of (default: all non-admin blocks;
+    the update mode passes the number of new ones).
+    """
+    content = sum(1 for b in blocks.values() if not is_admin(b)) if scope is None else scope
     return max(AUTOFILL_MIN, math.ceil(round(AUTOFILL_RATIO * content, 6)))
 
 
@@ -771,6 +827,395 @@ def _fail(
     )
 
 
+# ---------------------------------------------------------------- incremental update (M7)
+
+
+@dataclass
+class UpdatePlan:
+    """What the update mode builds on: the current outline and the blocks it does not know."""
+
+    old: Outline
+    new_ids: list[str]  # blocks absent from the old outline (admin ones included), in block order
+    new_content: list[str]  # of them, the non-admin blocks (the ones that must get a place)
+
+
+def previous_outline(ctx: BuildContext) -> Outline | None:
+    """`synthesis/outline.json` as the base of an update; None when it is absent or unusable."""
+    try:
+        outline = load_outline(ctx)
+    except (OSError, ValueError):  # includes FileNotFoundError
+        return None
+    return None if _check_structure(outline.sections) else outline
+
+
+def plan_update(
+    ctx: BuildContext, previous: Outline | None, blocks: Mapping[str, Block]
+) -> UpdatePlan | None:
+    """The update mode applies when the topic has an outline, got new content blocks and every
+    block of that outline (placed or `unassigned`) still exists. None: ordinary S1."""
+    if ctx.force or previous is None:
+        return None
+    known = {b for s in previous.sections for b in s.blocks}
+    known |= {u["block"] for u in previous.unassigned}
+    if any(b not in blocks for b in known):  # a source was removed or re-extracted differently
+        return None
+    new_ids = [b for b in blocks if b not in known]
+    new_content = [b for b in new_ids if not is_admin(blocks[b])]
+    if not new_content:
+        return None
+    return UpdatePlan(previous, new_ids, new_content)
+
+
+def stabilise_update(plan: UpdatePlan, outline: Outline, blocks: Mapping[str, Block]) -> None:
+    """Put back what the update must not change and the agent may have touched by accident.
+
+    The topic title; the one-line summaries of old sections that received no new block (they
+    are part of the cache key of the section texts); old `unassigned` entries and conflict hints
+    the agent dropped; an old block that the agent repeated in another section as well (the old
+    place wins). Nothing here changes the meaning of the structure, so no warnings are made.
+    """
+    old = plan.old
+    if old.title:
+        outline.title = old.title
+    new_ids = set(plan.new_ids)
+    old_sections = {s.id: s for s in old.sections}
+    for section in outline.sections:
+        previous = old_sections.get(section.id)
+        if previous is not None and not new_ids & set(section.blocks):
+            section.summary = previous.summary
+
+    by_id = {s.id: s for s in outline.sections}
+    old_owner = {b: s.id for s in old.sections for b in s.blocks}
+    for section in outline.sections:
+        section.blocks = [
+            b
+            for b in section.blocks
+            if not (
+                old_owner.get(b) not in (None, section.id)
+                and old_owner[b] in by_id
+                and b in by_id[old_owner[b]].blocks
+            )
+        ]
+
+    mentioned = {b for s in outline.sections for b in s.blocks}
+    mentioned |= {u["block"] for u in outline.unassigned}
+    outline.unassigned += [
+        dict(u) for u in old.unassigned if u["block"] in blocks and u["block"] not in mentioned
+    ]
+    topics = {h.get("topic") for h in outline.conflict_hints}
+    outline.conflict_hints += [h for h in old.conflict_hints if h.get("topic") not in topics]
+
+
+def check_preserved(old: Outline, new: Outline) -> list[Problem]:
+    """Every old section keeps its id, title, level, parent and place in the order, and every
+    old block stays in its section in the same order (new sections and blocks may be added)."""
+    problems: list[Problem] = []
+    new_by_id = {s.id: s for s in new.sections}
+    old_ids = {s.id for s in old.sections}
+
+    gone = [s for s in old.sections if s.id not in new_by_id]
+    if gone:
+        shown = ", ".join(f"`{s.id}` «{s.title}»" for s in gone[:MAX_LISTED])
+        problems.append(
+            Problem(
+                "preserve",
+                f"Удалены существующие разделы ({len(gone)}): {shown}. Существующие разделы "
+                "нужно оставить с теми же `id`, заголовками, уровнями и порядком.",
+            )
+        )
+    changed: list[str] = []
+    for s in old.sections:
+        n = new_by_id.get(s.id)
+        if n is None:
+            continue
+        diffs = []
+        if n.title != s.title:
+            diffs.append(f"заголовок «{s.title}» → «{n.title}»")
+        if n.level != s.level:
+            diffs.append(f"level {s.level} → {n.level}")
+        if (n.parent or None) != (s.parent or None):
+            diffs.append(f"parent {s.parent} → {n.parent}")
+        if diffs:
+            changed.append(f"`{s.id}` ({'; '.join(diffs)})")
+    if changed:
+        problems.append(
+            Problem(
+                "preserve",
+                f"Изменены существующие разделы ({len(changed)}): "
+                f"{'; '.join(changed[:MAX_LISTED])}. Верни прежние значения.",
+            )
+        )
+    if [s.id for s in old.sections if s.id in new_by_id] != [
+        s.id for s in new.sections if s.id in old_ids
+    ]:
+        problems.append(
+            Problem(
+                "preserve",
+                "Изменён порядок существующих разделов: новые разделы можно вставлять между "
+                "ними, но существующие нельзя переставлять.",
+            )
+        )
+
+    owner = {b: s.id for s in new.sections for b in s.blocks}
+    lost: list[str] = []
+    reordered: list[str] = []
+    for s in old.sections:
+        n = new_by_id.get(s.id)
+        if n is None:
+            continue
+        present = set(n.blocks)
+        for b in s.blocks:
+            if b not in present:
+                where = f"стал `{owner[b]}`" if b in owner else "нигде не указан"
+                lost.append(f"{b} (был `{s.id}`, {where})")
+        kept = [b for b in n.blocks if b in set(s.blocks)]
+        if kept != [b for b in s.blocks if b in present]:
+            reordered.append(f"`{s.id}`")
+    if lost:
+        problems.append(
+            Problem(
+                "preserve",
+                f"Блоки вышли из своих разделов ({len(lost)}): {_listed(lost)}. Уже назначенные "
+                "блоки должны остаться в своих разделах.",
+                len(lost),
+            )
+        )
+    if reordered:
+        problems.append(
+            Problem(
+                "preserve",
+                "Изменён порядок старых блоков внутри разделов: "
+                f"{', '.join(reordered[:MAX_LISTED])}. "
+                "Новые блоки можно вставлять между старыми, старые не переставляй.",
+            )
+        )
+    return problems
+
+
+def check_update(old: Outline, new: Outline, blocks: Mapping[str, Block]) -> OutlineCheck:
+    """`check_outline` (every block placed once, a valid structure) plus `check_preserved`."""
+    base = check_outline(new, blocks)
+    return OutlineCheck([*check_preserved(old, new), *base.problems], base.missing)
+
+
+def _update_contract() -> OutputContract:
+    return OutputContract(
+        files=[
+            ExpectedFile(
+                path=OUTLINE_JSON,
+                kind="json",
+                json_schema=OUTLINE_SCHEMA,
+                description="Полная обновлённая структура темы (старые и новые разделы).",
+            ),
+        ]
+    )
+
+
+def _update_task_text(plan: UpdatePlan, blocks: Mapping[str, Block], source_count: int) -> str:
+    admin = sum(1 for b in plan.new_ids if is_admin(blocks[b]))
+    by_source = Counter(blocks[b].source for b in plan.new_ids)
+    listed = ", ".join(f"{sid}: {n}" for sid, n in by_source.items())
+    placed = sum(len(s.blocks) for s in plan.old.sections)
+    return (
+        prompt_body(UPDATE_PROMPT).rstrip()
+        + "\n\n# Входные файлы\n\n"
+        + f"- `inputs/outline.json` — текущая структура (разделов: {len(plan.old.sections)}, "
+        + f"назначено блоков: {placed});\n"
+        + "- `inputs/new_blocks_index.md` — новые блоки, по строке на блок "
+        + f"(блоков: {len(plan.new_ids)}, из них служебных `admin`: {admin}; по источникам: "
+        + f"{listed});\n"
+        + "- `inputs/summaries.md` — аннотации, оглавления и термины всех источников "
+        + f"(источников: {source_count}).\n"
+    )
+
+
+def _update_feedback_text(problems: Sequence[Problem]) -> str:
+    lines = [
+        "# Обратная связь по предыдущей попытке",
+        "",
+        "Обновлённая структура из предыдущей попытки не прошла автоматическую проверку. Проблемы:",
+        "",
+        *[f"- {p.text}" for p in problems],
+        "",
+        "Файл предыдущей попытки (`outline.json`) уже лежит в `out/`: исправь его на месте. "
+        "Существующие разделы и назначения блоков из `inputs/outline.json` остаются без изменений.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+@dataclass
+class _UpdateOutcome:
+    result: StageResult | None  # None: the update failed, the caller rebuilds the structure
+    runs: int = 0
+    reason: str = ""  # Russian: why the update was abandoned
+
+
+def _abandon(runs: int, reason: str) -> _UpdateOutcome:
+    return _UpdateOutcome(None, runs, reason)
+
+
+def _run_update(
+    ctx: BuildContext,
+    plan: UpdatePlan,
+    blocks: Mapping[str, Block],
+    paths: Mapping[str, Path],
+    source_count: int,
+    *,
+    key: str,
+    pid: str,
+    model: str,
+    t0: float,
+) -> _UpdateOutcome:
+    """The update mode: agent runs with feedback, checks, repairs, files. See the module doc."""
+    try:
+        update_pid = prompt_id(UPDATE_PROMPT)
+        task_base = _update_task_text(plan, blocks, source_count)
+    except OSError as exc:
+        return _abandon(0, f"нет промпта обновления: {exc}")
+    new_index = inputs_dir(ctx) / NEW_BLOCKS_INDEX_FILE
+    _write(new_index, "\n".join(index_line(blocks[b]) for b in plan.new_ids))
+    contract = _update_contract()
+    inputs = [ctx.synth_dir / OUTLINE_JSON, new_index, paths["summaries"]]
+    runs = 0
+    best: _Attempt | None = None
+    feedback: list[Problem] = []
+    seed: dict[str, Path] | None = None
+    errors: list[str] = []
+
+    for attempt_no in range(1, MAX_RETRIES + 2):
+        task = task_base + ("\n" + _update_feedback_text(feedback) if feedback else "")
+        ctx.emit(
+            f"Структура (обновление, новых блоков: {len(plan.new_content)}): "
+            f"попытка {attempt_no} из {MAX_RETRIES + 1}"
+            + (f" (проблем в прошлой: {len(feedback)})" if feedback else "")
+        )
+        try:
+            result = run_agent(
+                ctx,
+                stage=STAGE,
+                task=task,
+                contract=contract,
+                inputs=inputs,
+                seed=seed,
+                tier="strong",
+            )
+        except (OSError, ValueError) as exc:
+            errors.append(f"не удалось запустить агента: {exc}")
+            break
+        runs += 1
+        if not result.ok:
+            errors.append("агент не вернул допустимую структуру: " + _listed(result.problems, 6))
+            break
+        out_dir = result.bundle.out_dir
+        try:
+            data = json.loads((out_dir / OUTLINE_JSON).read_text(encoding="utf-8-sig"))
+            outline = parse_outline(data)
+        except (OSError, ValueError, AttributeError) as exc:
+            errors.append(f"не удалось прочитать результат агента: {exc}")
+            break
+        stabilise_update(plan, outline, blocks)
+        check = check_update(plan.old, outline, blocks)
+        current = _Attempt(outline, check, "", out_dir, result.bundle.root)
+        if best is None or check.score <= best.check.score:
+            best = current
+        if check.ok:
+            break
+        feedback = check.problems
+        seed = {OUTLINE_JSON: out_dir / OUTLINE_JSON}
+        ctx.emit(
+            "Обновлённая структура не прошла проверку: "
+            + "; ".join(p.text[:80] for p in feedback[:3])
+        )
+
+    if best is None:
+        return _abandon(runs, "; ".join(errors) or "нет результата")
+    outline, check = best.outline, best.check
+    if check.structural:
+        return _abandon(
+            runs,
+            "результат не прошёл проверку после повторов: "
+            + " ".join(p.text for p in check.structural),
+        )
+    warnings: list[str] = []
+    if errors:  # a retry failed, the best earlier attempt is used
+        warnings.append(
+            "Повторный прогон агента не удался ("
+            + "; ".join(errors)
+            + "): использован результат предыдущей попытки."
+        )
+    warnings += normalize_outline(outline)
+    if check.problems:
+        warnings += repair_outline(outline, blocks)
+        missing = missing_blocks(outline, blocks)
+        limit = autofill_limit(blocks, scope=len(plan.new_content))
+        if len(missing) > limit:
+            return _abandon(
+                runs,
+                f"после повторов не назначены новые блоки ({len(missing)}; допустимо до "
+                f"{limit}): {_listed(missing)}",
+            )
+        warnings += autofill_missing(outline, blocks, missing)
+        warnings += normalize_outline(outline)
+    # Repairs of code must not break what the update promises: look once more.
+    final = check_update(plan.old, outline, blocks)
+    if final.problems:
+        return _abandon(
+            runs,
+            "после правок кода структура не прошла проверку: "
+            + " ".join(p.text for p in final.problems),
+        )
+    new_set = set(plan.new_content)
+    skipped = sum(1 for u in outline.unassigned if u["block"] in new_set)
+    if skipped / len(new_set) > UNASSIGNED_WARN_RATIO:
+        warnings.append(
+            f"В `unassigned` {skipped} из {len(new_set)} новых содержательных блоков "
+            f"({round(100 * skipped / len(new_set))} %): проверьте, не потеряно ли содержание."
+        )
+    old_ids = {s.id for s in plan.old.sections}
+    new_sections = [s.id for s in outline.sections if s.id not in old_ids]
+    write_json_atomic(ctx.synth_dir / OUTLINE_JSON, outline.to_dict())
+    _write(ctx.synth_dir / OUTLINE_MD, render_outline_md(outline))
+    # The agent's own outline.md of the last full run describes the structure before the update.
+    (ctx.synth_dir / OUTLINE_AGENT_MD).unlink(missing_ok=True)
+    duration = round(time.monotonic() - t0, 3)
+    write_meta(
+        ctx,
+        STAGE,
+        {
+            "key": key,
+            "prompt": pid,
+            "model": model,
+            "update_prompt": update_pid,
+            "mode": "update",
+            "duration_s": duration,
+            "agent_runs": runs,
+            "ok": True,
+            "warnings": warnings,
+            "bundle": str(best.bundle),
+            "new_blocks": len(new_set),
+            "new_sections": new_sections,
+        },
+    )
+    return _UpdateOutcome(
+        StageResult(
+            stage=STAGE,
+            ok=True,
+            agent_runs=runs,
+            duration_s=duration,
+            warnings=warnings,
+            details=_details(
+                outline,
+                attempts=runs,
+                mode="update",
+                new_blocks=len(new_set),
+                new_sections=new_sections,
+                bundle=str(best.bundle),
+            ),
+        ),
+        runs,
+    )
+
+
 def run_outline(
     ctx: BuildContext,
     blocks: Mapping[str, Block] | Iterable[Block],
@@ -803,13 +1248,39 @@ def run_outline(
             ok=True,
             cached=True,
             warnings=list(meta.get("warnings") or []),
-            details=_details(outline, attempts=0),
+            details=_details(outline, attempts=0, mode="cached"),
         )
+
+    runs = 0
+    carried: list[str] = []
+    details: dict[str, Any] = {}
+    plan = plan_update(ctx, previous_outline(ctx), mapping)
+    if plan is not None:
+        outcome = _run_update(
+            ctx,
+            plan,
+            mapping,
+            paths,
+            len({b.source for b in mapping.values()}),
+            key=key,
+            pid=pid,
+            model=model,
+            t0=t0,
+        )
+        if outcome.result is not None:
+            return outcome.result
+        runs = outcome.runs
+        carried = [
+            f"Обновление структуры не удалось ({outcome.reason}): структура пересобрана заново, "
+            "разделы будут переписаны."
+        ]
+        details["update_failed"] = True
+        ctx.emit("Обновление структуры не удалось: " + outcome.reason + ". Пересборка структуры.")
+    (inputs_dir(ctx) / NEW_BLOCKS_INDEX_FILE).unlink(missing_ok=True)
 
     task_base = _task_text(mapping, len({b.source for b in mapping.values()}))
     contract = _contract()
     inputs = [paths["summaries"], paths["blocks_index"]]
-    runs = 0
     best: _Attempt | None = None
     feedback: list[Problem] = []
     seed: dict[str, Path] | None = None
@@ -864,7 +1335,17 @@ def run_outline(
             ctx, pid=pid, model=model, t0=t0, runs=runs, errors=errors or ["нет результата"]
         )
     return _finish(
-        ctx, best, mapping, key=key, pid=pid, model=model, t0=t0, runs=runs, errors=errors
+        ctx,
+        best,
+        mapping,
+        key=key,
+        pid=pid,
+        model=model,
+        t0=t0,
+        runs=runs,
+        errors=errors,
+        carried=carried,
+        extra_details=details,
     )
 
 
@@ -893,10 +1374,15 @@ def _finish(
     t0: float,
     runs: int,
     errors: list[str],
+    carried: Sequence[str] = (),
+    extra_details: Mapping[str, Any] | None = None,
 ) -> StageResult:
-    """Repair what is safe to repair, save outline.json/.md and the stage meta."""
+    """Repair what is safe to repair, save outline.json/.md and the stage meta.
+
+    `carried`: warnings of earlier steps of this stage run (a failed update), kept in the meta.
+    """
     outline, check = best.outline, best.check
-    warnings: list[str] = []
+    warnings: list[str] = list(carried)
     changed = False
     if check.structural:
         return _fail(
@@ -962,7 +1448,7 @@ def _finish(
     # (with ids); the agent's own outline.md is kept next to it for reference.
     md = render_outline_md(outline)
     if best.md.strip() and not changed:
-        _write(ctx.synth_dir / "outline.agent.md", best.md)
+        _write(ctx.synth_dir / OUTLINE_AGENT_MD, best.md)
     write_json_atomic(ctx.synth_dir / OUTLINE_JSON, outline.to_dict())
     _write(ctx.synth_dir / OUTLINE_MD, md)
     duration = round(time.monotonic() - t0, 3)
@@ -986,5 +1472,7 @@ def _finish(
         agent_runs=runs,
         duration_s=duration,
         warnings=warnings,
-        details=_details(outline, attempts=runs, bundle=str(best.bundle)),
+        details=_details(
+            outline, attempts=runs, mode="full", bundle=str(best.bundle), **(extra_details or {})
+        ),
     )

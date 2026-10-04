@@ -15,6 +15,7 @@
       <a class="brand" href="/" aria-label="H0lon — темы"><span class="brand-mark" aria-hidden="true"></span>H0lon</a>
       <nav class="mainnav" aria-label="Разделы">
         <a href="/"{% if nav == 'topics' %} aria-current="page"{% endif %}>Темы</a>
+        <a href="/queue"{% if nav == 'queue' %} aria-current="page"{% endif %}>Очередь</a>
         <a href="/doctor"{% if nav == 'doctor' %} aria-current="page"{% endif %} data-busy-link="Идёт проверка окружения…">Проверка окружения</a>
       </nav>
     </div>

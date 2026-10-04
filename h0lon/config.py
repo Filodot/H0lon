@@ -118,6 +118,10 @@ STAGE_TO_FIELD: dict[str, str] = {
 class QueueConfig(BaseModel):
     unattended: bool = False
     keep_awake: bool = True
+    # Pace of the build queue by the subscription windows of Claude (h0lon/queue.py): pause until
+    # the 5-hour window resets when it is this full, stop the queue when the weekly one is.
+    pause_at: float = Field(default=0.9, gt=0, le=1)
+    weekly_stop: float = Field(default=0.95, gt=0, le=1)
 
 
 class ComputeConfig(BaseModel):

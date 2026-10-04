@@ -546,6 +546,145 @@ def variants(
         console.print("Вариаций пока нет: h0lon variant <тема> --preset brief")
 
 
+queue_app = typer.Typer(
+    name="queue",
+    help="Очередь сборок: несколько тем подряд, темп под лимиты подписки Claude.",
+    no_args_is_help=True,
+    add_completion=False,
+    rich_markup_mode="rich",
+)
+app.add_typer(queue_app, name="queue")
+
+
+def _queue_fail(exc: Exception) -> typer.Exit:
+    err_console.print(f"[red]Ошибка:[/red] {escape(str(exc))}")
+    return typer.Exit(2)
+
+
+@queue_app.command("add")
+def queue_add(
+    ctx: typer.Context,
+    topics: Annotated[
+        list[str], typer.Argument(help="Темы: путь, <курс>/<тема> или имя темы (одна или больше).")
+    ],
+    action: Annotated[
+        str, typer.Option("--action", "-a", help="build (сборка мастера) | extract (извлечение).")
+    ] = "build",
+    no_review: Annotated[
+        bool, typer.Option("--no-review", help="Сборка не останавливается на review gate.")
+    ] = False,
+    force: Annotated[bool, typer.Option("--force", help="Игнорировать кэш.")] = False,
+    json_out: Annotated[bool, typer.Option("--json", help="Результат в JSON.")] = False,
+) -> None:
+    """Поставить темы в очередь (повторно та же тема с тем же действием не добавляется)."""
+    from h0lon import queue as queue_mod
+
+    if action not in ("build", "extract"):
+        err_console.print("[red]--action: допустимо build | extract[/red]")
+        raise typer.Exit(2)
+    settings = _settings(ctx)
+    params: dict[str, Any] = {}
+    if no_review and action == "build":
+        params["review"] = False
+    if force:
+        params["force"] = True
+    try:
+        report = queue_mod.add_items(settings, topics, action=action, params=params)
+    except (ValueError, FileNotFoundError, queue_mod.QueueError) as exc:
+        raise _queue_fail(exc) from exc
+    if json_out:
+        _print_json(report.to_dict())
+    else:
+        for item in report.added:
+            console.print(
+                f"В очереди: [bold]{escape(item.topic)}[/bold] "
+                f"({queue_mod.ACTION_LABELS[item.action]}), номер элемента {item.id}"
+            )
+        for note in report.skipped:
+            err_console.print(f"[yellow]Пропущено:[/yellow] {escape(note)}")
+        if report.added:
+            console.print("Дальше: [bold]h0lon queue run[/bold] — обработать очередь.")
+    raise typer.Exit(0 if report.added else 1)
+
+
+@queue_app.command("list")
+def queue_list(
+    ctx: typer.Context,
+    json_out: Annotated[bool, typer.Option("--json", help="Результат в JSON.")] = False,
+) -> None:
+    """Показать очередь и загрузку окон лимитов подписки."""
+    from h0lon import queue as queue_mod
+
+    settings = _settings(ctx)
+    try:
+        items = queue_mod.list_items(settings)
+    except queue_mod.QueueError as exc:
+        raise _queue_fail(exc) from exc
+    if json_out:
+        _print_json(
+            {
+                "items": [i.to_dict() for i in items],
+                "limits": queue_mod.limits_summary(settings),
+            }
+        )
+    else:
+        queue_mod.print_queue(items, console=console, settings=settings)
+
+
+@queue_app.command("run")
+def queue_run(
+    ctx: typer.Context,
+    unattended: Annotated[
+        bool,
+        typer.Option(
+            "--unattended",
+            help="Без присмотра: ошибка элемента не останавливает очередь, система не засыпает.",
+        ),
+    ] = False,
+    json_out: Annotated[bool, typer.Option("--json", help="Результат в JSON.")] = False,
+) -> None:
+    """Выполнить очередь по порядку; при заполненном 5-часовом окне ждёт его сброса."""
+    from h0lon import queue as queue_mod
+
+    settings = _settings(ctx)
+    try:
+        report = queue_mod.run_queue(
+            settings,
+            unattended=unattended,
+            on_event=None
+            if json_out
+            else (lambda msg: err_console.print(msg, style="dim", markup=False, highlight=False)),
+        )
+    except queue_mod.QueueError as exc:
+        raise _queue_fail(exc) from exc
+    if json_out:
+        _print_json(report.to_dict())
+    else:
+        queue_mod.print_run(report, console=console)
+    raise typer.Exit(3 if report.stopped == "limit" else 0 if report.ok else 1)
+
+
+@queue_app.command("clear")
+def queue_clear(
+    ctx: typer.Context,
+    done: Annotated[
+        bool, typer.Option("--done", help="Убрать только выполненные элементы.")
+    ] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Не спрашивать подтверждения.")] = False,
+) -> None:
+    """Очистить очередь: выполненные элементы (--done) или все, кроме выполняющегося."""
+    from h0lon import queue as queue_mod
+
+    settings = _settings(ctx)
+    if not done and not yes and not typer.confirm("Убрать из очереди все элементы?"):
+        raise typer.Exit(1)
+    try:
+        removed = queue_mod.clear_items(settings, done_only=done)
+    except queue_mod.QueueError as exc:
+        raise _queue_fail(exc) from exc
+    console.print(f"Убрано элементов: {removed}.")
+
+
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 
 

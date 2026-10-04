@@ -2,9 +2,9 @@
 
 Pages are rendered on the server; actions are plain form posts that answer with a redirect
 (POST/redirect/GET) and leave a short message for the next page (`FlashStore`). Long work is
-never done in a request: extraction, build, approval and variations are jobs (`h0lon.web.jobs`)
-whose progress the page follows over Server-Sent Events. Errors are shown as a readable Russian
-message, never as a traceback.
+never done in a request: extraction, build, approval, variations and the build queue are jobs
+(`h0lon.web.jobs`) whose progress the page follows over Server-Sent Events. Errors are shown as a
+readable Russian message, never as a traceback.
 """
 
 from __future__ import annotations
@@ -404,7 +404,15 @@ def _master_view(ref: TopicRef, status: dict[str, Any]) -> dict[str, Any] | None
     md = ref.path / present.MASTER_MD
     if not pdf.is_file() and not md.is_file():
         return None
-    view: dict[str, Any] = {"pdf_url": "", "md_url": "", "built": "", "appendices": []}
+    view: dict[str, Any] = {
+        "pdf_url": "",
+        "md_url": "",
+        "built": "",
+        "appendices": [],
+        "changelog_url": "",
+    }
+    if present.resolve_topic_file(ref.path, "synthesis/changelog.md") is not None:
+        view["changelog_url"] = ref.file_url("synthesis/changelog.md")
     if pdf.is_file():
         view["pdf_url"] = f"{ref.file_url(present.MASTER_PDF)}?v={int(pdf.stat().st_mtime)}"
         view["built"] = present.format_ts(pdf.stat().st_mtime)
@@ -542,6 +550,25 @@ def _result_rows(job: Job) -> list[dict[str, Any]]:
                 "warnings": list(result.get("warnings") or [])[:5],
             }
         )
+    elif job.kind == "queue":
+        verdicts = {
+            "done": ("готово", "ok"),
+            "failed": ("ошибка", "bad"),
+            "paused": ("пауза", "warn"),
+            "queued": ("пропущено", "muted"),
+        }
+        for it in result.get("items") or []:
+            verdict, cls = verdicts.get(it.get("status"), ("—", "muted"))
+            message = str(it.get("message") or "")[:300]
+            rows.append(
+                {
+                    "title": f"{it.get('topic')} ({it.get('action')})",
+                    "verdict": verdict,
+                    "class": cls,
+                    "errors": [message] if it.get("status") == "failed" and message else [],
+                    "warnings": [message] if it.get("status") in ("paused", "queued") else [],
+                }
+            )
     elif job.kind == "extract":
         for res in result.get("results") or []:
             if not res.get("ok"):
@@ -586,6 +613,21 @@ def job_view(job: Job) -> dict[str, Any]:
     }
 
 
+def _queue_info(settings: Any, ref: TopicRef) -> str:
+    """«сборка (в очереди), извлечение (выполняется)» for the topic page, or an empty string."""
+    from h0lon import queue as queue_mod
+
+    try:
+        items = queue_mod.topic_items(settings, ref.path)
+    except (queue_mod.QueueError, OSError, ValueError):
+        return ""
+    return ", ".join(
+        f"{queue_mod.ACTION_LABELS.get(i.action, i.action)} "
+        f"({queue_mod.STATUS_LABELS.get(i.status, i.status)})"
+        for i in items
+    )
+
+
 def _topic_context(request: Request, ref: TopicRef) -> dict[str, Any]:
     from h0lon.synth.build import topic_status
 
@@ -603,6 +645,7 @@ def _topic_context(request: Request, ref: TopicRef) -> dict[str, Any]:
     parallel = max(1, int(settings.agents.parallel_runs))
     return {
         "nav": "topics",
+        "queue_info": _queue_info(settings, ref),
         "ref": ref,
         "title": meta.title,
         "course_title": meta.course,
@@ -910,7 +953,11 @@ def cancel_job(request: Request, job_id: str) -> Response:
     job = jobs.get(job_id)
     if job is None:
         raise WebError(404, "Задача не найдена", "Журнал задач живёт, пока работает сервер.")
-    base = "/t/" + "/".join(quote(p) for p in job.topic.split("/"))
+    base = (
+        "/queue"
+        if job.kind == "queue"
+        else "/t/" + "/".join(quote(p) for p in job.topic.split("/"))
+    )
     if jobs.cancel(job_id):
         return redirect(request, base, flash("info", "Остановка запрошена."), fragment="job")
     return redirect(request, base, flash("info", "Задача уже завершена."), fragment="job")
@@ -982,6 +1029,196 @@ async def job_events(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
     )
+
+
+# ---------------------------------------------------------------- build queue
+
+QUEUE_STATUS_CLASSES = {
+    "queued": "queued",
+    "running": "running",
+    "done": "done",
+    "failed": "failed",
+    "paused": "warn",
+}
+QUEUE_ITEM_RE = re.compile(r"^[0-9a-f]{4,32}$")
+
+
+def _queue_options(item: Any) -> str:
+    """The parameters of an item as a short Russian phrase (empty for the defaults)."""
+    params = item.params
+    parts = []
+    if params.get("review") is False:
+        parts.append("без остановки на review gate")
+    if params.get("from_stage"):
+        parts.append(f"со стадии {params['from_stage']}")
+    if params.get("force"):
+        parts.append("без кэша")
+    if params.get("use_vision") is False:
+        parts.append("без распознавания агентом")
+    if params.get("backend"):
+        parts.append(f"агент {params['backend']}")
+    return ", ".join(parts)
+
+
+def _queue_item_view(settings: Any, item: Any) -> dict[str, Any]:
+    from h0lon import queue as queue_mod
+    from h0lon.workspace import load_topic
+
+    title, url, error = item.topic, "", ""
+    try:
+        path = queue_mod.resolve_item_topic(settings, item)
+    except FileNotFoundError:
+        error = "тема не найдена"
+    else:
+        try:
+            title = load_topic(path).title
+        except (ValueError, FileNotFoundError, OSError):
+            pass
+        try:
+            parts = path.relative_to(Path(settings.general.workspaces_dir).resolve()).parts
+        except ValueError:
+            parts = ()
+        if len(parts) == 2:
+            url = topic_url(*parts)
+    return {
+        "id": item.id,
+        "topic": item.topic,
+        "title": title,
+        "url": url,
+        "error": error,
+        "action": queue_mod.ACTION_LABELS.get(item.action, item.action),
+        "options": _queue_options(item),
+        "status": item.status,
+        "status_label": queue_mod.STATUS_LABELS.get(item.status, item.status),
+        "status_class": QUEUE_STATUS_CLASSES.get(item.status, "info"),
+        "added": present.format_iso(item.added),
+        "finished": present.format_iso(item.finished) if item.finished else "",
+        "message": item.message,
+        "removable": item.status != "running",
+    }
+
+
+@router.get("/queue", response_class=HTMLResponse)
+def queue_page(request: Request) -> Response:
+    from h0lon import queue as queue_mod
+
+    state = request.app.state
+    settings = state.settings
+    extra: list[Flash] = []
+    try:
+        items = queue_mod.list_items(settings)
+    except queue_mod.QueueError as exc:
+        items, extra = [], [flash("error", str(exc))]
+    job = state.jobs.queue_job()
+    return render(
+        request,
+        "queue.html",
+        nav="queue",
+        flashes_extra=extra,
+        rows=[_queue_item_view(settings, i) for i in items],
+        waiting=sum(1 for i in items if i.runnable),
+        finished=sum(1 for i in items if i.status == "done"),
+        limits=queue_mod.limits_summary(settings),
+        job=job_view(job) if job is not None else None,
+        busy=job is not None and job.active,
+        unattended=bool(settings.queue.unattended),
+        keep_awake=bool(settings.queue.keep_awake),
+    )
+
+
+@router.post("/queue/run")
+def queue_run(request: Request, unattended: Annotated[str, Form()] = "") -> Response:
+    from h0lon import queue as queue_mod
+
+    state = request.app.state
+    try:
+        waiting = sum(1 for i in queue_mod.list_items(state.settings) if i.runnable)
+    except queue_mod.QueueError as exc:
+        return redirect(request, "/queue", flash("error", str(exc)))
+    if not waiting:
+        return redirect(
+            request,
+            "/queue",
+            flash(
+                "info", "В очереди нет элементов: добавьте тему кнопкой «В очередь» на её странице."
+            ),
+        )
+    try:
+        job = state.jobs.start_queue(unattended=_flag(unattended))
+    except TopicBusyError:
+        return redirect(
+            request, "/queue", flash("warn", "Очередь уже обрабатывается."), fragment="job"
+        )
+    return redirect(
+        request, "/queue", flash("info", f"Задача «{job.title}» запущена."), fragment="job"
+    )
+
+
+@router.post("/queue/clear")
+def queue_clear(request: Request, done: Annotated[str, Form()] = "") -> Response:
+    from h0lon import queue as queue_mod
+
+    try:
+        removed = queue_mod.clear_items(request.app.state.settings, done_only=_flag(done))
+    except queue_mod.QueueError as exc:
+        return redirect(request, "/queue", flash("error", str(exc)))
+    return redirect(request, "/queue", flash("ok", f"Убрано элементов: {removed}."))
+
+
+@router.post("/queue/{item_id}/remove")
+def queue_remove(request: Request, item_id: str) -> Response:
+    from h0lon import queue as queue_mod
+
+    if not QUEUE_ITEM_RE.match(item_id):
+        raise WebError(404, "Элемент очереди не найден", back_url="/queue", back_label="К очереди")
+    try:
+        removed = queue_mod.remove_item(request.app.state.settings, item_id)
+    except queue_mod.QueueError as exc:
+        return redirect(request, "/queue", flash("warn", str(exc)))
+    if not removed:
+        return redirect(request, "/queue", flash("info", "Элемента уже нет в очереди."))
+    return redirect(request, "/queue", flash("ok", "Элемент убран из очереди."))
+
+
+@router.post("/t/{course}/{slug}/queue")
+def enqueue_topic(
+    request: Request,
+    course: str,
+    slug: str,
+    action: Annotated[str, Form()] = "build",
+    from_stage: Annotated[str, Form()] = "",
+    force: Annotated[str, Form()] = "",
+    no_review: Annotated[str, Form()] = "",
+    no_vision: Annotated[str, Form()] = "",
+    backend: Annotated[str, Form()] = "",
+) -> Response:
+    """«В очередь»: the options of the build or extraction form travel with the item."""
+    from h0lon import queue as queue_mod
+
+    ref = get_topic(request, course, slug)
+    action = action.strip().lower()
+    if action not in ("build", "extract"):
+        return redirect(request, ref.url, flash("error", f"Неизвестное действие: {action}."))
+    params: dict[str, Any] = {"force": _flag(force), "backend": _backend(backend)}
+    if action == "build":
+        params["from_stage"] = from_stage.strip() or None
+        params["review"] = not _flag(no_review)
+    else:
+        params["use_vision"] = not _flag(no_vision)
+    try:
+        report = queue_mod.add_items(
+            request.app.state.settings, [ref.path], action=action, params=params
+        )
+    except (ValueError, FileNotFoundError, queue_mod.QueueError) as exc:
+        return redirect(request, ref.url, flash("error", str(exc)), fragment="build")
+    if report.added:
+        label = queue_mod.ACTION_LABELS[action]
+        message = flash(
+            "ok", f"Тема поставлена в очередь ({label}). Очередь — в разделе «Очередь»."
+        )
+    else:
+        message = flash("info", "; ".join(report.skipped) or "Тема уже в очереди.")
+    return redirect(request, ref.url, message, fragment="build")
 
 
 # ---------------------------------------------------------------- source review

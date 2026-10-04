@@ -49,8 +49,10 @@ coverage = "auto"
 variants = "auto"
 
 [queue]
-unattended = false
-keep_awake = true
+unattended = false            # true: ошибка элемента не останавливает очередь (ночная работа)
+keep_awake = true             # Windows: не давать системе уснуть, пока очередь работает без присмотра
+pause_at = 0.9                # 5-часовое окно Claude занято на столько (0–1) — пауза до его сброса
+weekly_stop = 0.95            # недельный лимит занят на столько (0–1) — очередь останавливается
 
 [compute]
 asr = "auto"                  # auto | local-gpu | local-cpu | colab | api (colab и api — позже)

@@ -13,6 +13,9 @@ module (`synthesis/<stage>.meta.json`). Decisions of this module:
   they were when it ran; `topic_status` compares them with the current ones to tell «устарело».
 - After a successful build the topic repository gets a commit (`runs/` and `build.json` are
   not committed: agent transcripts are large and local, build.json changes on every run).
+- Before that commit `synthesis/changelog.md` gets an entry (sources added or changed since the
+  previous build, what S1 did, the sections S2 rewrote, coverage). The previous set of sources is
+  kept in build.json (`sources`). A build that changed nothing writes no entry.
 """
 
 from __future__ import annotations
@@ -58,6 +61,8 @@ if TYPE_CHECKING:
 
 BUILD_FILE = "build.json"
 COVERAGE_FILE = "coverage.json"
+CHANGELOG_FILE = "changelog.md"
+MAX_CHANGELOG_SECTIONS = 12  # section ids listed in one changelog line
 FINAL_SECTIONS = ("final", "sections")
 STAGE_TITLES: dict[str, str] = {
     "extract": "Извлечение источников",
@@ -297,6 +302,7 @@ class _State:
     blocks: dict[str, Block] = field(default_factory=dict)
     outline: Outline | None = None
     coverage: CoverageReport | None = None
+    sections_rewritten: list[str] | None = None  # ids of the sections S2 wrote (None: unknown)
 
 
 def _stage_extract(ctx: BuildContext, force: bool, state: _State) -> StageResult:
@@ -370,9 +376,26 @@ def _stage_outline(ctx: BuildContext, state: _State) -> StageResult:
     return result
 
 
+def _group_records(ctx: BuildContext) -> set[tuple[tuple[str, ...], tuple[str, ...]]]:
+    """(sections, agent bundles) of every S2 group record in sections.meta.json."""
+    meta = read_meta(ctx, "sections") or {}
+    return {
+        (tuple(rec.get("sections") or ()), tuple(rec.get("bundles") or ()))
+        for rec in (meta.get("groups") or {}).values()
+        if isinstance(rec, dict)
+    }
+
+
 def _stage_sections(ctx: BuildContext, state: _State) -> StageResult:
     assert state.outline is not None
-    return _stage_fn("sections", "run_sections")(ctx, state.outline, state.blocks)
+    before = _group_records(ctx)
+    result = _stage_fn("sections", "run_sections")(ctx, state.outline, state.blocks)
+    # A group written in this run has agent bundles that no earlier record has; the groups taken
+    # from the cache keep their records unchanged.
+    order = {s.id: i for i, s in enumerate(state.outline.sections)}
+    written = {sid for sections, _ in _group_records(ctx) - before for sid in sections}
+    state.sections_rewritten = sorted(written, key=lambda sid: order.get(sid, len(order)))
+    return result
 
 
 def _stage_global(ctx: BuildContext, state: _State) -> StageResult:
@@ -498,6 +521,170 @@ def _git_commit(ctx: BuildContext, message: str) -> StageResult:
     return stage
 
 
+# ---------------------------------------------------------------- changelog
+
+
+def _sources_snapshot(records: Sequence[SourceRecord]) -> dict[str, dict[str, str]]:
+    """The extracted sources as build.json remembers them (to tell what the next build adds)."""
+    return {
+        r.id: {"extracted_key": r.extracted_key or "", "title": r.title, "kind": r.kind}
+        for r in _extracted(records)
+    }
+
+
+def _source_label(sid: str, info: dict[str, str]) -> str:
+    from h0lon.sources.ingest import KIND_LABELS
+
+    kind = info.get("kind", "")
+    title = " ".join(info.get("title", "").split())
+    return f"{sid} «{title}» ({KIND_LABELS.get(kind, kind)})" if title else sid
+
+
+def _section_list(ids: Sequence[str], titles: dict[str, str]) -> str:
+    shown = [f"`{i}` «{titles[i]}»" if titles.get(i) else f"`{i}`" for i in ids]
+    text = ", ".join(shown[:MAX_CHANGELOG_SECTIONS])
+    if len(shown) > MAX_CHANGELOG_SECTIONS:
+        text += f" … (и ещё {len(shown) - MAX_CHANGELOG_SECTIONS})"
+    return text
+
+
+def _changelog_entry(
+    state: _State,
+    result: BuildResult,
+    previous: dict[str, Any] | None,
+    had_master: bool,
+    when: datetime,
+) -> str | None:
+    """One entry of changelog.md, or None when this build changed nothing."""
+    current = _sources_snapshot(state.records)
+    stages = {s.stage: s for s in result.stages}
+    added: list[str] = []
+    changed: list[str] = []
+    removed: list[str] = []
+    if previous is None:
+        # No record of the earlier build: a first build adds everything; for a topic built before
+        # the changelog existed the set of sources before this build is unknown.
+        added = [] if had_master else list(current)
+    else:
+        added = [i for i in current if i not in previous]
+        changed = [
+            i
+            for i in current
+            if i in previous
+            and (previous[i] or {}).get("extracted_key", "") != current[i]["extracted_key"]
+        ]
+        removed = [i for i in previous if i not in current]
+    synthesis = [stages[s] for s in ("outline", "sections", "global", "coverage") if s in stages]
+    if not (added or changed or removed) and all(s.cached for s in synthesis):
+        return None
+
+    titles = {s.id: s.title for s in state.outline.sections} if state.outline else {}
+    lines = [f"## {when:%Y-%m-%d %H:%M} — сборка мастера", ""]
+    parts = []
+    if added:
+        parts.append("добавлены: " + "; ".join(_source_label(i, current[i]) for i in added))
+    if changed:
+        parts.append("изменены: " + "; ".join(_source_label(i, current[i]) for i in changed))
+    if removed:
+        parts.append(
+            "удалены: "
+            + "; ".join(_source_label(i, (previous or {}).get(i) or {}) for i in removed)
+        )
+    if parts:
+        lines.append("- **Источники:** " + "; ".join(parts) + ".")
+    elif previous is None and had_master:
+        lines.append(
+            "- **Источники:** журнал ведётся с этой сборки, состав источников до неё неизвестен."
+        )
+    else:
+        lines.append("- **Источники:** без изменений.")
+
+    outline_stage = stages.get("outline")
+    if outline_stage is not None:
+        d = outline_stage.details or {}
+        if outline_stage.cached:
+            text = "без изменений (из кэша)"
+        elif d.get("mode") == "update":
+            text = (
+                f"обновлена по новым блокам (+{d.get('new_blocks', '?')}): существующие разделы "
+                "и назначения блоков сохранены"
+            )
+            if d.get("new_sections"):
+                text += "; новые разделы: " + _section_list(d["new_sections"], titles)
+        elif d.get("mode") == "full":
+            text = "построена заново"
+            if d.get("update_failed"):
+                text += " (обновление существующей структуры не удалось)"
+        else:
+            text = "выполнена"
+        lines.append(f"- **Структура (S1):** {text}.")
+
+    sections_stage = stages.get("sections")
+    if sections_stage is not None:
+        d = sections_stage.details or {}
+        if sections_stage.cached:
+            text = "без изменений (из кэша)"
+        elif state.sections_rewritten:
+            text = f"переписаны разделы ({len(state.sections_rewritten)}): " + _section_list(
+                state.sections_rewritten, titles
+            )
+            if d.get("groups") is not None and d.get("groups_cached") is not None:
+                text += f"; групп {d['groups']}, из кэша {d['groups_cached']}"
+        else:
+            text = "выполнены"
+        lines.append(f"- **Разделы (S2):** {text}.")
+
+    global_stage = stages.get("global")
+    if global_stage is not None:
+        lines.append(
+            "- **Глобальная правка (S3):** "
+            + ("без изменений (из кэша)." if global_stage.cached else "выполнена.")
+        )
+
+    if state.coverage is not None:
+        cov = state.coverage
+        text = f"{percent(cov.covered, cov.total)} ({cov.covered} из {cov.total} блоков)"
+        if cov.rounds:
+            text += f", кругов дополнения: {cov.rounds}"
+        lines.append(f"- **Покрытие:** {text}.")
+    runs = sum(s.agent_runs for s in result.stages)
+    lines.append(f"- **Прогонов агента:** {runs}.")
+    return "\n".join(lines) + "\n"
+
+
+def _write_changelog(
+    ctx: BuildContext,
+    state: _State,
+    result: BuildResult,
+    previous: dict[str, Any] | None,
+    had_master: bool,
+) -> list[str]:
+    """Append the entry of this build to synthesis/changelog.md and remember the sources in
+    build.json. Never raises: the changelog must not fail a finished build."""
+    from h0lon.extract.blocks import atomic_write_text
+    from h0lon.workspace import load_topic
+
+    try:
+        entry = _changelog_entry(state, result, previous, had_master, datetime.now())
+        if entry is not None:
+            path = ctx.synth_dir / CHANGELOG_FILE
+            if path.is_file():
+                text = path.read_text(encoding="utf-8")
+            else:
+                text = (
+                    "# Журнал изменений мастер-конспекта\n\n"
+                    f"Тема: «{load_topic(ctx.topic_dir).title}». Запись добавляется после каждой "
+                    "сборки, в которой что-то изменилось.\n"
+                )
+            atomic_write_text(path, text.rstrip("\n") + "\n\n" + entry)
+        data = _read_build_file(ctx)
+        data["sources"] = _sources_snapshot(state.records)
+        write_json_atomic(ctx.synth_dir / BUILD_FILE, data)
+    except Exception as exc:  # bookkeeping only
+        return [f"Журнал изменений не записан: {type(exc).__name__}: {exc}"]
+    return []
+
+
 # ---------------------------------------------------------------- build
 
 
@@ -548,6 +735,9 @@ def build_topic(
     )
     result = BuildResult(ok=False, topic_dir=topic_dir)
     state = _State()
+    previous = _read_build_file(ctx).get("sources")
+    previous = previous if isinstance(previous, dict) else None
+    had_master = (topic_dir / MASTER_MD).is_file()
 
     def forced(stage: str) -> bool:
         return from_idx is not None and STAGES.index(stage) >= from_idx
@@ -626,7 +816,14 @@ def build_topic(
     result.ok = True
     pct = percent(state.coverage.covered, state.coverage.total) if state.coverage else "—"
     commit_message = f"Сборка мастера: {date.today().isoformat()}, покрытие {pct}"
-    git_stage = execute("git", GIT_TITLE, lambda: _git_commit(ctx, commit_message))
+
+    def commit() -> StageResult:
+        notes = _write_changelog(ctx, state, result, previous, had_master)
+        stage = _git_commit(ctx, commit_message)
+        stage.warnings = [*notes, *stage.warnings]
+        return stage
+
+    git_stage = execute("git", GIT_TITLE, commit)
     note = f" Покрытие блоков источников: {pct}."
     if git_stage.warnings:
         note += " Предупреждение git: " + git_stage.warnings[0]

@@ -110,6 +110,7 @@
       <div class="actions">
         <button class="btn btn-primary" type="submit"{% if busy or not rows %} disabled{% endif %}>Извлечь</button>
         <button class="btn" type="submit" formaction="{{ ref.url }}/plan"{% if not rows %} disabled{% endif %}>Показать план</button>
+        <button class="btn btn-quiet" type="submit" name="action" value="extract" formaction="{{ ref.url }}/queue"{% if not rows %} disabled{% endif %} title="Извлечение выполнит очередь сборок">В очередь</button>
       </div>
     </form>
     {% if plan %}
@@ -199,8 +200,10 @@
       </details>
       <div class="actions">
         <button class="btn btn-primary" type="submit"{% if busy or not rows %} disabled{% endif %}>Собрать</button>
-        <span class="muted small">Сборка идёт на сильном уровне агента и может занять десятки минут. Уже готовые стадии берутся из кэша.</span>
+        <button class="btn" type="submit" name="action" value="build" formaction="{{ ref.url }}/queue"{% if not rows %} disabled{% endif %} title="Сборку выполнит очередь: темы собираются по одной, темп подстраивается под лимиты подписки">В очередь</button>
+        <span class="muted small">Сборка идёт на сильном уровне агента и может занять десятки минут. Уже готовые стадии берутся из кэша. Если в тему добавили источники, структура обновляется, а разделы пересчитываются только там, где появились новые блоки.</span>
       </div>
+      {% if queue_info %}<p class="muted small">Тема в очереди: {{ queue_info }}. <a href="/queue">Открыть очередь</a></p>{% endif %}
     </form>
   </section>
 
@@ -210,6 +213,7 @@
     <p class="links">
       {% if master.pdf_url %}<a class="btn btn-sm" href="{{ master.pdf_url }}" target="_blank" rel="noopener">Открыть master.pdf</a>{% endif %}
       {% if master.md_url %}<a class="btn btn-sm btn-quiet" href="{{ master.md_url }}" target="_blank" rel="noopener">master.md</a>{% endif %}
+      {% if master.changelog_url %}<a class="btn btn-sm btn-quiet" href="{{ master.changelog_url }}" target="_blank" rel="noopener">Журнал изменений</a>{% endif %}
       {% if master.built %}<span class="muted small">Собрано {{ master.built }}</span>{% endif %}
     </p>
     {% if master.appendices %}

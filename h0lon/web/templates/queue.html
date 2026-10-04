@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% from "_macros.html" import result_rows %}
+{% block title %}Очередь сборок — H0lon{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1>Очередь сборок</h1>
+  <p class="muted">Темы собираются по одной, а темп подстраивается под лимиты подписки Claude. Добавить тему можно на её странице кнопкой «В очередь».</p>
+</header>
+
+{% if job %}
+<section class="card job" id="job" data-job-id="{{ job.id }}" data-job-active="{{ 1 if job.active else 0 }}" data-next="{{ job.total }}">
+  <div class="job-head">
+    <h2>{{ job.title }}</h2>
+    <span class="badge badge-{{ job.status }}" data-role="badge">{{ job.label }}</span>
+    <span class="muted small">{{ job.started }}{% if job.duration != '—' %} · {{ job.duration }}{% endif %}</span>
+    {% if job.active %}
+    <form method="post" action="/jobs/{{ job.id }}/cancel" class="job-cancel" data-confirm="Остановить очередь? Выполняемая стадия будет завершена, элемент останется на паузе.">
+      <button class="btn btn-sm" type="submit"{% if job.cancel_requested %} disabled{% endif %}>{{ 'Остановка запрошена' if job.cancel_requested else 'Остановить' }}</button>
+    </form>
+    {% endif %}
+  </div>
+  <pre class="log" data-role="log" tabindex="0" aria-label="Журнал очереди">{{ job.log }}</pre>
+  {% if job.shortened %}<p class="muted small">Показаны последние строки журнала; всего событий: {{ job.total }}.</p>{% endif %}
+  {% if not job.active %}
+  <p class="status status-{{ 'ok' if job.status == 'done' else 'bad' if job.status == 'failed' else 'warn' }}">{{ job.message }}</p>
+  {% if job.rows %}{{ result_rows(job.rows) }}{% endif %}
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="card" id="limits">
+  <h2>Лимиты подписки</h2>
+  {% if limits.known %}
+  <ul class="limit-list">
+    {% for w in limits.windows %}
+    <li class="limit-row">
+      <span class="limit-name">{{ w.label }}</span>
+      <meter min="0" max="100" value="{{ w.percent }}" optimum="0" low="{{ w.threshold - 1 }}" high="{{ w.threshold - 1 }}" aria-label="Окно {{ w.label }}"></meter>
+      <span class="limit-value{% if w.hot %} limit-hot{% endif %}">{{ w.percent }} %</span>
+      <span class="muted small">порог {{ w.threshold }} %{% if w.active and w.resets != '—' %} · сброс {{ w.resets }}{% elif not w.active %} · окно уже сброшено{% endif %}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% if limits.action == 'wait' %}
+  <p class="status status-warn">Сейчас очередь ждала бы сброса окна: {{ limits.reason }}.</p>
+  {% elif limits.action == 'stop' %}
+  <p class="status status-bad">Сейчас очередь остановилась бы: {{ limits.reason }}.</p>
+  {% else %}
+  <p class="status status-ok">Лимиты позволяют работать.</p>
+  {% endif %}
+  {% else %}
+  <p class="muted">Данных о лимитах пока нет: они появятся после первого прогона агента Claude. Без них очередь работает без пауз.</p>
+  {% endif %}
+  <p class="muted small">Когда 5-часовое окно занято на {{ limits.pause_at }} % и больше, очередь ждёт его сброса; когда недельный лимит занят на {{ limits.weekly_stop }} % и больше, очередь останавливается (элемент остаётся на паузе). Пороги — раздел [queue] в h0lon.toml.</p>
+</section>
+
+<section class="card" id="items">
+  <h2>Элементы</h2>
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="table responsive">
+      <thead><tr><th>Тема</th><th>Действие</th><th>Статус</th><th>Добавлено</th><th></th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td data-label="Тема"><div>
+            <div class="strong">{% if r.url %}<a href="{{ r.url }}">{{ r.title }}</a>{% else %}{{ r.title }}{% endif %}</div>
+            <div class="muted small clip mono">{{ r.topic }}</div>
+            {% if r.error %}<div class="note note-bad">{{ r.error }}</div>{% endif %}
+          </div></td>
+          <td data-label="Действие"><div>{{ r.action }}{% if r.options %}<div class="muted small">{{ r.options }}</div>{% endif %}</div></td>
+          <td data-label="Статус"><div>
+            <span class="badge badge-{{ r.status_class }}">{{ r.status_label }}</span>
+            {% if r.message %}<div class="note{% if r.status == 'failed' %} note-bad{% elif r.status == 'paused' %} note-warn{% endif %}">{{ r.message }}</div>{% endif %}
+            {% if r.finished %}<div class="muted small">{{ r.finished }}</div>{% endif %}
+          </div></td>
+          <td data-label="Добавлено">{{ r.added }}</td>
+          <td class="actions-cell">
+            <form method="post" action="/queue/{{ r.id }}/remove">
+              <button class="btn btn-sm btn-quiet" type="submit"{% if not r.removable %} disabled{% endif %}>Убрать</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">Очередь пуста. Откройте тему и нажмите «В очередь» рядом с кнопкой «Собрать».</p>
+  {% endif %}
+
+  <form method="post" action="/queue/run" class="queue-run" data-busy="Запускаем очередь…">
+    <div class="opts">
+      <label class="check"><input type="checkbox" name="unattended" value="1"{% if unattended %} checked{% endif %}> Без присмотра: ошибка элемента не останавливает очередь{% if keep_awake %}, Windows не засыпает{% endif %}</label>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" type="submit"{% if busy or not waiting %} disabled{% endif %}>Запустить очередь{% if waiting %} ({{ waiting }}){% endif %}</button>
+      {% if busy %}<span class="muted small">Очередь уже обрабатывается.</span>{% endif %}
+    </div>
+  </form>
+  {% if rows %}
+  <div class="actions queue-clear">
+    <form method="post" action="/queue/clear" data-confirm="Убрать из очереди выполненные элементы?">
+      <input type="hidden" name="done" value="1">
+      <button class="btn btn-sm btn-quiet" type="submit"{% if not finished %} disabled{% endif %}>Убрать выполненные</button>
+    </form>
+    <form method="post" action="/queue/clear" data-confirm="Убрать из очереди все элементы, кроме выполняющегося?">
+      <button class="btn btn-sm btn-quiet" type="submit">Очистить всё</button>
+    </form>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
