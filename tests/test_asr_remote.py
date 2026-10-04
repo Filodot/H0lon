@@ -272,7 +272,9 @@ def test_the_audio_goes_to_the_worker_and_the_segments_come_back(
     assert any("Colab-worker на связи (Tesla T4, модель large-v3)" in e for e in events)
     assert any("отправка аудио" in e for e in events) and any("отправлено за" in e for e in events)
     (upload,) = uploads
-    assert upload["size"] > 100 and upload["seconds"] > 0
+    # a localhost upload can fit into one tick of the Windows monotonic clock: 0.0 is valid
+    # (record_upload ignores such samples instead of dividing by zero)
+    assert upload["size"] > 100 and upload["seconds"] >= 0
     assert worker.app.state.jobs._jobs == {}  # the client deleted the job
 
 
