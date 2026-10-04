@@ -237,7 +237,9 @@ def test_dry_run_plans_only(tmp_path: Path, settings: Settings) -> None:
     d1, v1, h1 = plans
     assert d1.agent_runs == 1 and any("аннотация: 1 прогон агента claude" in n for n in d1.notes)
     assert "M5" in v1.notes[0] and v1.agent_runs == 0
-    assert "M4" in h1.notes[0]
+    # handwriting is no longer a later stage: a plan with a batch of pages and the summary
+    assert h1.pages_total == 1 and h1.pages_vision == 1 and h1.agent_runs == 2
+    assert not any("M4" in n for n in h1.notes) and any("сильный уровень" in n for n in h1.notes)
     assert not (topic / "extracted").exists()
     assert stored(topic, "D1")["status"] == "added"
 
@@ -268,15 +270,15 @@ def test_print_functions(tmp_path: Path, settings: Settings) -> None:
 
 
 def test_later_stage_kinds_are_skipped(tmp_path: Path, settings: Settings) -> None:
-    topic = make_topic(
-        tmp_path, [("V1", "video", "v"), ("A1", "audio", "a"), ("H1", "handwritten", "h")]
-    )
+    """Only video and audio wait for M5; handwriting is extracted (test_extract_handwritten)."""
+    topic = make_topic(tmp_path, [("V1", "video", "v"), ("A1", "audio", "a")])
     results = pipeline.extract_topic(settings, topic)
     assert all(r.ok and r.source_md is None and not r.cached for r in results)
-    assert "M5" in results[0].warnings[0] and "M4" in results[2].warnings[0]
-    for sid in ("V1", "A1", "H1"):
+    assert all("этап M5" in r.warnings[0] for r in results)
+    for sid in ("V1", "A1"):
         rec = stored(topic, sid)
-        assert rec["status"] == "skipped" and "M" in rec["error"]
+        assert rec["status"] == "skipped" and "M5" in rec["error"]
+    assert set(registry.LATER_STAGES) == {"video", "audio"}
 
 
 def test_unsupported_kind(

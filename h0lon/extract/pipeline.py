@@ -2,8 +2,9 @@
 
 For every source: extractor → body.md → blocks (source.md + blocks.jsonl) → summary.md,
 with a cache keyed by the source file, the extractor version, the prompt versions and the
-light-tier model. One failing source never stops the others; statuses, quality signals and
-cache keys go to topic.yaml through `h0lon.sources.ingest`.
+models (the light tier of the summary; the extractor's own tier too when it is not light —
+handwriting is read by the strong tier). One failing source never stops the others;
+statuses, quality signals and cache keys go to topic.yaml through `h0lon.sources.ingest`.
 """
 
 from __future__ import annotations
@@ -173,6 +174,23 @@ def _prompt_ids(kind: str, extractor: Extractor, use_vision: bool) -> list[str]:
     return ids
 
 
+def _vision_agent(
+    settings: Settings, extractor: Extractor, backend: str | None
+) -> tuple[str, str] | None:
+    """(backend, model) of the extractor's own agent tier; None for the light tier.
+
+    The light tier is the one the summary uses (`sm.light_model`); an extractor that reads
+    pages with the strong tier declares `tier = "strong"` and its bundle `stage`.
+    """
+    tier = getattr(extractor, "tier", "light")
+    if tier == "light":
+        return None
+    from h0lon.extract import vision
+
+    stage = getattr(extractor, "stage", vision.STAGE)
+    return vision.agent_model(settings, backend, tier=tier, stage=stage)
+
+
 def cache_key(
     settings: Settings,
     rec: SourceRecord,
@@ -182,7 +200,7 @@ def cache_key(
     use_vision: bool,
     backend: str | None,
 ) -> tuple[str, dict[str, Any]]:
-    """(key, its parts): file hash + extractor version + prompt versions + light model."""
+    """(key, its parts): file hash + extractor version + prompt versions + models."""
     agent, model = sm.light_model(settings, backend) if use_vision else (None, None)
     parts: dict[str, Any] = {
         "sha256": file_sha256 or rec.sha256 or rec.url,
@@ -192,6 +210,9 @@ def cache_key(
         "model": model,
         "vision": use_vision,  # a --no-vision result must not satisfy a full run
     }
+    own = _vision_agent(settings, extractor, backend) if use_vision else None
+    if own is not None:  # light-tier extractors keep their keys
+        parts["vision_backend"], parts["vision_model"] = own
     digest = hashlib.sha256(json.dumps(parts, sort_keys=True).encode("utf-8")).hexdigest()
     return digest[:32], parts
 
@@ -565,7 +586,11 @@ def _run_extraction(
     if output.pages_total and not units:
         units = {("slides" if rec.kind == "slides" else "pages"): output.pages_total}
     vision_used = output.agent_runs > 0
-    agent, model = sm.light_model(settings, ctx.backend) if vision_used else (None, None)
+    agent, model = (None, None)
+    if vision_used:
+        agent, model = _vision_agent(settings, extractor, ctx.backend) or sm.light_model(
+            settings, ctx.backend
+        )
     vision_prompts = [p for p in key_parts["prompts"] if not p.startswith(sm.PROMPT_NAME + "@")]
     front: dict[str, Any] = {
         "id": rec.id,

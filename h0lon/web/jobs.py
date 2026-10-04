@@ -1,7 +1,8 @@
 """Background jobs of the web interface (docs/ARCHITECTURE.md, «Веб-интерфейс (M3)»).
 
-`extract`, `build` and `approve` run in worker threads of the server process, through the same
-functions as the CLI (`extract_topic`, `build_topic`, `approve_topic`). Rules:
+`extract`, `build`, `approve` and `variant` run in worker threads of the server process, through
+the same functions as the CLI (`extract_topic`, `build_topic`, `approve_topic`, `run_variant`).
+Rules:
 
 - one active (queued or running) job per topic; a second `start` raises `TopicBusyError`;
 - at most `agents.parallel_runs` jobs run at once, the rest wait in a FIFO queue («queued»);
@@ -12,7 +13,8 @@ functions as the CLI (`extract_topic`, `build_topic`, `approve_topic`). Rules:
   `done` (the pipeline succeeded), `failed` (an error result or an exception, text in
   `Job.error`), `stopped` (cancelled by the user, or `build` stopped at the review gate);
 - `cancel` is soft. A queued job is dropped at once. A running `build` stops at the start of the
-  next stage (the stage that is running finishes); a running `extract` stops between sources.
+  next stage (the stage that is running finishes); a running `extract` stops between sources;
+  a running `variant` stops before the next phase (the agent run, the PDF build).
   An agent run that is in flight is never interrupted, so caches stay consistent.
 
 The library functions are imported when a job runs, so tests may replace them with fakes
@@ -37,13 +39,14 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("h0lon.web")
 
-JOB_KINDS = ("extract", "build", "approve")
+JOB_KINDS = ("extract", "build", "approve", "variant")
 ACTIVE_STATUSES = ("queued", "running")
 FINISHED_STATUSES = ("done", "failed", "stopped")
 KIND_TITLES = {
     "extract": "Извлечение источников",
     "build": "Сборка мастер-конспекта",
     "approve": "Одобрение извлечения",
+    "variant": "Вариация",
 }
 STATUS_LABELS = {
     "queued": "в очереди",
@@ -143,7 +146,9 @@ class Job:
 
     @property
     def title(self) -> str:
-        return KIND_TITLES.get(self.kind, self.kind)
+        base = KIND_TITLES.get(self.kind, self.kind)
+        label = self.params.get("label") if self.kind == "variant" else None
+        return f"{base}: {label}" if label else base
 
     @property
     def active(self) -> bool:
@@ -519,8 +524,42 @@ def _run_approve(settings: Settings, job: Job) -> tuple[str, dict[str, Any]]:
     return "done", {"ok": True, "message": message, **info}
 
 
+def _run_variant(settings: Settings, job: Job) -> tuple[str, dict[str, Any]]:
+    from h0lon.synth import variants as variants_mod
+
+    params = job.params
+    phases = {
+        variants_mod.AGENT_START: "запрос к агенту",
+        variants_mod.RENDER_START: "сборка PDF",
+    }
+
+    def on_event(message: str) -> None:
+        job.add_event(message)
+        # Raised between the phases of run_variant: an agent run in flight is never interrupted.
+        if job.cancel_requested and message in phases:
+            raise _JobCancelled(phases[message])
+
+    result = variants_mod.run_variant(
+        settings,
+        job.topic_dir,
+        preset=params.get("preset"),
+        prompt=params.get("prompt"),
+        template=params.get("template"),
+        backend=params.get("backend") or None,
+        force=bool(params.get("force")),
+        on_event=on_event,
+    )
+    data = result.to_dict()
+    data["message"] = result.message()
+    for error in result.errors:
+        job.add_event(error)
+    job.add_event(data["message"])
+    return ("done" if result.ok else "failed"), data
+
+
 _RUNNERS: dict[str, Callable[[Settings, Job], tuple[str, dict[str, Any]]]] = {
     "extract": _run_extract,
     "build": _run_build,
     "approve": _run_approve,
+    "variant": _run_variant,
 }

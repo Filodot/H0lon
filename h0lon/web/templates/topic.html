@@ -224,6 +224,87 @@
     {% endif %}
     {% endif %}
   </section>
+
+  <section class="card step" id="variants" data-refresh="variants">
+    <h2>Вариации</h2>
+    {% if not variants.has_master %}
+    <p class="muted">Вариации делаются из готового мастер-конспекта: сначала соберите его.</p>
+    {% else %}
+    <p class="muted">Производные документы из master.md: кратко, учебный конспект, шпаргалка, документ по вашему запросу или тот же текст в другом шаблоне. Каждая вариация хранится в variants/&lt;имя&gt;/; когда мастер пересобран, она помечается «устарело» и пересобирается одной кнопкой.</p>
+
+    {% if variants.rows %}
+    <div class="table-wrap">
+      <table class="table responsive variants-table">
+        <thead><tr><th>Вариация</th><th>Шаблон</th><th>Создана</th><th>Состояние</th><th></th></tr></thead>
+        <tbody>
+          {% for v in variants.rows %}
+          <tr>
+            <td data-label="Вариация"><div>
+              <div class="strong">{{ v.title }}</div>
+              {% if v.prompt %}<div class="muted small clip">{{ v.prompt }}</div>{% endif %}
+              <div class="muted small mono">variants/{{ v.slug }}</div>
+            </div></td>
+            <td data-label="Шаблон">{{ v.template or '—' }}</td>
+            <td data-label="Создана">{{ v.created }}</td>
+            <td data-label="Состояние"><span class="badge badge-{{ v.state_class }}">{{ v.state }}</span></td>
+            <td class="actions-cell">
+              <div class="btn-stack">
+                {% if v.pdf_url %}<a class="btn btn-sm" href="{{ v.pdf_url }}" target="_blank" rel="noopener">Открыть PDF</a>{% else %}<span class="muted small">PDF не собран</span>{% endif %}
+                {% if v.md_url %}<a class="btn btn-sm btn-quiet" href="{{ v.md_url }}" target="_blank" rel="noopener">variant.md</a>{% endif %}
+                <form method="post" action="{{ ref.url }}/variant" data-busy="Запускаем вариацию…">
+                  <input type="hidden" name="preset" value="{{ v.rebuild.preset }}">
+                  <input type="hidden" name="prompt" value="{{ v.rebuild.prompt }}">
+                  <input type="hidden" name="template" value="{{ v.rebuild.template }}">
+                  {% if not v.stale %}<input type="hidden" name="force" value="1">{% endif %}
+                  <button class="btn btn-sm{% if v.stale %} btn-primary{% else %} btn-quiet{% endif %}" type="submit"{% if busy %} disabled{% endif %}>{{ 'Пересобрать' if v.stale else 'Заново' }}</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if variants.stale %}<p class="status status-warn">Мастер изменился после сборки вариаций: {{ variants.stale }}. Они помечены «устарело».</p>{% endif %}
+    {% else %}
+    <p class="muted">Вариаций пока нет.</p>
+    {% endif %}
+
+    <form class="variant-form" method="post" action="{{ ref.url }}/variant" data-busy="Запускаем вариацию…" data-variant-form>
+      <fieldset class="variant-presets">
+        <legend>Что собрать</legend>
+        {% for p in variants.presets %}
+        <label class="variant-preset">
+          <input type="radio" name="preset" value="{{ p.value }}"{% if loop.first %} checked{% endif %}>
+          <span class="variant-preset-text">
+            <span><span class="strong">{{ p.title }}</span> <span class="muted small">· {{ p.tier }}</span></span>
+            <span class="muted small">{{ p.hint }}</span>
+          </span>
+        </label>
+        {% endfor %}
+      </fieldset>
+      <label data-variant-prompt>Запрос (нужен для «По запросу»)
+        <textarea name="prompt" rows="3" placeholder="Например: 10 вопросов к экзамену с краткими ответами" spellcheck="true"></textarea>
+      </label>
+      <div class="opts">
+        <label>Шаблон
+          <select name="template">
+            <option value="">по умолчанию</option>
+            {% for value, label in variants.templates %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Агент
+          <select name="backend">{% for value, label in backends %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
+        </label>
+        <label class="check"><input type="checkbox" name="force" value="1"> Собрать заново, даже если мастер не менялся</label>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" type="submit"{% if busy %} disabled{% endif %}>Собрать вариацию</button>
+        <span class="muted small">Шаблон по умолчанию: у шпаргалки {{ variants.template_defaults.cheatsheet }}, у остальных — из настроек; «Другой шаблон» требует выбрать шаблон. Агент работает от нескольких минут; уже собранная вариация при неизменном мастере берётся из кэша.</span>
+      </div>
+    </form>
+    {% endif %}
+  </section>
 </div>
 {% endblock %}
 

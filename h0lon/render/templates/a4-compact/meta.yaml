@@ -1,0 +1,47 @@
+# Встроенный шаблон H0lon: плотная шпаргалка на основе a4-notes (вариация «шпаргалка»).
+title: "A4-шпаргалка: 9 pt, поля 12 мм, две колонки"
+description: >-
+  A4, кегль 9 pt, поля 12 мм, основной текст в две колонки (multicol), без титульной
+  страницы и оглавления: вверху компактная шапка с названием, внизу колонтитул с номером
+  страницы. Те же блоки, что в a4-notes (определения, теоремы, доказательства), но
+  мельче; таблицы прерывают колонки и идут на всю ширину листа (таблица внутри списка или
+  рамки доказательства XeLaTeX здесь не собирает: включается запасной HTML-движок).
+  Формулы шире колонки уменьшаются до ширины колонки. Для вариации «шпаргалка» и для
+  перевёрстки мастера в плотный вид (h0lon variant --template a4-compact).
+engine: xelatex
+# Файлы .sty, без которых шаблон не собирается (проверяет h0lon doctor).
+latex_packages:
+  - iftex.sty
+  - amsmath.sty
+  - mathtools.sty
+  - fontspec.sty
+  - unicode-math.sty
+  - polyglossia.sty
+  - geometry.sty
+  - microtype.sty
+  - titlesec.sty
+  - enumitem.sty
+  - needspace.sty
+  - xcolor.sty
+  - mdframed.sty
+  - etoolbox.sty
+  - multicol.sty
+  - caption.sty
+  - fancyvrb.sty
+  - longtable.sty
+  - booktabs.sty
+  - array.sty
+  - calc.sty
+  - graphicx.sty
+  - ulem.sty
+  - hyperref.sty
+  - bookmark.sty
+# Необязательные: шаблон подключает их через \IfFileExists и без них тоже собирается
+# (footnotehyper заменяется на footnote). h0lon doctor это поле пока не читает.
+optional_latex_packages:
+  - upquote.sty
+  - xurl.sty
+  - footnotehyper.sty
+  - footnote.sty
+# Стиль запасного рендера HTML → PDF (браузер). Шаблон HTML — template.html рядом.
+html_css: style.css

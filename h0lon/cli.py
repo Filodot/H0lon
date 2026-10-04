@@ -461,6 +461,91 @@ def status(
         print_status(info, console=console)
 
 
+@app.command()
+def variant(
+    ctx: typer.Context,
+    topic: Annotated[str, typer.Argument(help="Тема: путь, <курс>/<тема> или имя темы.")],
+    preset: Annotated[
+        str | None,
+        typer.Option(
+            "--preset",
+            "-p",
+            help="brief (кратко) | study (учебный конспект) | cheatsheet (шпаргалка) | "
+            "custom (по запросу); без --preset: custom при --prompt, перевёрстка при --template.",
+        ),
+    ] = None,
+    prompt: Annotated[
+        str | None,
+        typer.Option("--prompt", help="Запрос для пресета custom: что должно получиться."),
+    ] = None,
+    template: Annotated[
+        str | None,
+        typer.Option(
+            "--template",
+            "-t",
+            help="Шаблон: сам по себе — перевёрстка мастера без агента, "
+            "вместе с пресетом — шаблон для его PDF (у шпаргалки по умолчанию a4-compact).",
+        ),
+    ] = None,
+    force: Annotated[
+        bool, typer.Option("--force", help="Собрать заново, даже если мастер не менялся.")
+    ] = False,
+    backend: Annotated[
+        str | None, typer.Option("--backend", "-b", help="claude | codex для прогона агента.")
+    ] = None,
+    json_out: Annotated[bool, typer.Option("--json", help="Результат в JSON.")] = False,
+) -> None:
+    """Собрать вариацию мастер-конспекта: кратко, учебный конспект, шпаргалка, по запросу."""
+    from h0lon.sources.ingest import IngestError
+    from h0lon.synth.variants import run_variant
+
+    if backend not in (None, "claude", "codex"):
+        err_console.print("[red]--backend: допустимо claude | codex[/red]")
+        raise typer.Exit(2)
+    settings = _settings(ctx)
+    topic_dir = _topic(settings, topic)
+    try:
+        result = run_variant(
+            settings,
+            topic_dir,
+            preset=preset,
+            prompt=prompt,
+            template=template,
+            backend=backend,
+            force=force,
+            on_event=None
+            if json_out
+            else (lambda msg: err_console.print(msg, style="dim", markup=False, highlight=False)),
+        )
+    except (ValueError, IngestError) as exc:
+        err_console.print(f"[red]Ошибка:[/red] {escape(str(exc))}")
+        raise typer.Exit(2) from exc
+    if json_out:
+        _print_json(result.to_dict())
+    else:
+        result.print(console)
+    raise typer.Exit(0 if result.ok else 1)
+
+
+@app.command()
+def variants(
+    ctx: typer.Context,
+    topic: Annotated[str, typer.Argument(help="Тема: путь, <курс>/<тема> или имя темы.")],
+    json_out: Annotated[bool, typer.Option("--json", help="Результат в JSON.")] = False,
+) -> None:
+    """Показать вариации темы и их состояние (актуально / устарело после новой сборки мастера)."""
+    from h0lon.synth.variants import list_variants, print_variants
+
+    settings = _settings(ctx)
+    items = list_variants(_topic(settings, topic))
+    if json_out:
+        _print_json(items)
+    elif items:
+        print_variants(items, console=console, title="Вариации темы")
+    else:
+        console.print("Вариаций пока нет: h0lon variant <тема> --preset brief")
+
+
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 
 

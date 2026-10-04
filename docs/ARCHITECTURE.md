@@ -371,10 +371,11 @@ def list_variants(topic_dir) -> list[dict]            # slug, preset, prompt, cr
 `h0lon/extract/handwritten.py` — `HandwrittenExtractor` (kinds `handwritten`): фото (`.jpg/.jpeg/.png`, `.heic` — если установлен `pillow-heif`, иначе понятная ошибка с подсказкой) и PDF-сканы, добавленные с `--kind handwritten`.
 
 - Подготовка страниц (код, Pillow): поворот по EXIF, обрезка однотонных полей, масштаб до длинной стороны ≤ 2000 px; две версии — `p<NNNN>.png` (оригинал) и `p<NNNN>.enh.png` (оттенки серого, автоконтраст, лёгкая резкость; исходник никогда не перезаписывается). PDF — рендер страниц ~200 dpi.
-- Распознавание — `vision.transcribe_pages(..., prompt_name="handwritten_pages", tier="strong", batch_size=4)`: промпт `h0lon/prompts/handwritten_pages@1.0.md` (правила skill автора), обе версии страницы — изображения бандла. В `vision.py` добавляется параметр `prompt_name` (по умолчанию `vision_pages` с вариантами) и поддержка дополнительных изображений на страницу.
+- Распознавание — `vision.transcribe_pages(..., prompt_name="handwritten_pages", tier="strong", batch_size=4)`: промпт `h0lon/prompts/handwritten_pages@1.1.md` (правила skill автора), обе версии страницы — изображения бандла. В `vision.py` добавляется параметр `prompt_name` (по умолчанию `vision_pages` с вариантами) и поддержка дополнительных изображений на страницу.
 - `body.md` — заголовки мест `## [[H1:p3]] Страница 3`; блоки `author-question`, `admin`, `uncertain` проходят в Source Doc как есть (в мастер `admin` не попадает, `author-question` уходит в приложение «Редакторские дополнения» через S2).
 - `quality`: `pages`, `pages_vision`, `pages_failed`, `uncertain_marks` (число `[неразборчиво]` и `[?]`), `author_questions`, `scan_dpi`, `notes` (что проверить на review gate: страницы с наибольшим числом неуверенных мест).
 - Конвейер M1 перестаёт пропускать `handwritten` (`skipped` остаётся только для видео и аудио — M5).
+- По итогам реализации: бандлы рукописи идут со стадией `handwriting` (агента выбирает `stages.handwriting`), усиленная копия передаётся через `PageImage.extra_images` и входит в ключ кэша страницы; экстрактор объявляет `tier="strong"`, поэтому в ключ кэша источника входит сильная модель. `extracted/<ID>/pages/prep.json` хранит результат подготовки страниц. Кэш страниц не зависит от модели: для повторного распознавания другой моделью — `--force`.
 - Ограничения v1: каждое фото — отдельный источник (группировка фото в одну рукопись — позже); нет второго прохода по увеличенным фрагментам неуверенных мест.
 
 ## Правила для всех модулей

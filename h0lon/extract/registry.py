@@ -22,13 +22,13 @@ EXTRACTORS: dict[str, tuple[str, str]] = {
     "md": ("h0lon.extract.docs", "DocsExtractor"),
     "tex": ("h0lon.extract.docs", "DocsExtractor"),
     "web": ("h0lon.extract.docs", "DocsExtractor"),
+    "handwritten": ("h0lon.extract.handwritten", "HandwrittenExtractor"),
 }
 
 # Kinds accepted by `h0lon add` whose extraction belongs to a later stage.
 LATER_STAGES: dict[str, str] = {
-    "handwritten": "Рукописи распознаются на этапе M4 — источник пока пропущен",
-    "video": "Видео обрабатывается на этапе M5 (кадры и транскрипт) — источник пока пропущен",
-    "audio": "Аудио обрабатывается на этапе M5 (транскрипт) — источник пока пропущен",
+    "video": "Видео — этап M5 (кадры и транскрипт), источник пока пропущен",
+    "audio": "Аудио — этап M5 (транскрипт), источник пока пропущен",
 }
 
 

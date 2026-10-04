@@ -1,12 +1,18 @@
 """Page transcription by a vision agent (docs/ARCHITECTURE.md, «Распознавание страниц»).
 
 Pages go to the agent in batches: one task bundle per batch (`<topic>/runs/<id>/`, stage
-`extract`) with the page PNGs and their text layers as `inputs/p<NNNN>.png|txt`; the
-contract asks for `out/p<NNNN>.md` per page. Results are normalized (no page headings, no
-```markdown fences, headings `#`/`##` → `###`, fenced divs balanced within the page, raw
-TeX outside math made literal) and cached in `extracted/<ID>/pages/`: `p<NNNN>.md` +
-`p<NNNN>.key`, the key being sha256 of the PNG, of the hint, of the prompt version, of the
-flavor and of the task format.
+`extract` unless the caller names another) with the page PNGs and their text layers as
+`inputs/p<NNNN>.png|txt`; the contract asks for `out/p<NNNN>.md` per page. Results are
+normalized (no page headings, no ```markdown fences, headings `#`/`##` → `###`, fenced divs
+balanced within the page, raw TeX outside math made literal) and cached in
+`extracted/<ID>/pages/`: `p<NNNN>.md` + `p<NNNN>.key`, the key being sha256 of the PNG (and
+of the page's extra pictures), of the hint, of the prompt version, of the flavor and of the
+task format.
+
+The prompt is `vision_pages` (a common part plus one «## Вариант: <flavor>» section) unless
+the caller names another prompt file (`prompt_name`, e.g. `handwritten_pages` — a prompt
+without variants). `PageImage.extra_images` are more pictures of the same page (the enhanced
+copy of a handwritten page): they join the bundle's images and the task lists them.
 """
 
 from __future__ import annotations
@@ -17,14 +23,17 @@ import re
 import shutil
 import tempfile
 import threading
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from h0lon.agents import ExpectedFile, OutputContract, Tier, Usage, create_bundle, run_task
 from h0lon.extract.model import ExtractContext, PageImage
+
+if TYPE_CHECKING:
+    from h0lon.config import Settings
 
 Flavor = Literal["document", "slides", "scan"]
 FLAVORS: tuple[str, ...] = ("document", "slides", "scan")
@@ -70,9 +79,38 @@ def _split_prompt(raw: str) -> tuple[str, dict[str, str]]:
     return common, variants
 
 
-def prompt_text(flavor: str) -> str:
-    """Common part of the prompt + the section of one flavor (no comment, no «## Вариант»)."""
-    common, variants = _split_prompt(PROMPT_PATH.read_text(encoding="utf-8"))
+_PROMPT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def prompt_source(prompt_name: str = PROMPT_NAME) -> tuple[Path, str]:
+    """(file, `name@version`) of a prompt: `vision_pages@1.0` itself, any other — the newest."""
+    if prompt_name == PROMPT_NAME:
+        return PROMPT_PATH, PROMPT_REF
+    if not _PROMPT_NAME_RE.match(prompt_name):
+        raise ValueError(f"Недопустимое имя промпта «{prompt_name}»")
+    from h0lon.extract.summary import find_prompt
+
+    path, version = find_prompt(prompt_name)
+    return path, f"{prompt_name}@{version}"
+
+
+def prompt_ref(prompt_name: str = PROMPT_NAME) -> str:
+    """`name@version` of the prompt (part of the page cache key)."""
+    return prompt_source(prompt_name)[1]
+
+
+def prompt_text(flavor: str, prompt_name: str = PROMPT_NAME) -> str:
+    """Common part of the prompt + the section of one flavor (no comment, no «## Вариант»).
+
+    A prompt without «## Вариант:» sections (`handwritten_pages`) is returned whole; the
+    flavor then only labels the pages («Страница» / «Слайд»).
+    """
+    raw = prompt_source(prompt_name)[0].read_text(encoding="utf-8")
+    common, variants = _split_prompt(raw)
+    if not variants:
+        if flavor not in FLAVORS:
+            raise ValueError(f"Неизвестный вариант распознавания «{flavor}»")
+        return common
     if flavor not in variants:
         raise ValueError(f"Неизвестный вариант распознавания «{flavor}»")
     return common + "\n\n" + variants[flavor]
@@ -82,13 +120,31 @@ def _page_name(number: int) -> str:
     return f"p{number:04d}"
 
 
-def batch_task(flavor: str, numbers: Sequence[int]) -> str:
+_EXTRA_LABELS = {".enh.png": "усиленная копия"}
+
+
+def _extra_label(name: str) -> str:
+    for suffix, label in _EXTRA_LABELS.items():
+        if name.endswith(suffix):
+            return label
+    return "дополнительное изображение"
+
+
+def batch_task(
+    flavor: str,
+    numbers: Sequence[int],
+    *,
+    prompt_name: str = PROMPT_NAME,
+    extras: Mapping[int, Sequence[str]] | None = None,
+) -> str:
+    """Task text: the prompt and the list of pages; `extras` — page → names in `inputs/`."""
     label = _LABEL[flavor]
-    lines = [prompt_text(flavor), "", "## Страницы этого задания", ""]
+    lines = [prompt_text(flavor, prompt_name), "", "## Страницы этого задания", ""]
     for n in numbers:
         name = _page_name(n)
+        more = "".join(f", {_extra_label(x)} `inputs/{x}`" for x in (extras or {}).get(n, ()))
         lines.append(
-            f"- {label} {n}: изображение `inputs/{name}.png`, текстовый слой "
+            f"- {label} {n}: изображение `inputs/{name}.png`{more}, текстовый слой "
             f"`inputs/{name}.txt` → `out/{name}.md`"
         )
     return "\n".join(lines) + "\n"
@@ -312,14 +368,16 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def page_key(page: PageImage, flavor: str) -> str:
-    payload = {
+def page_key(page: PageImage, flavor: str, prompt_name: str = PROMPT_NAME) -> str:
+    payload: dict[str, Any] = {
         "png": _sha256_file(page.image),
         "hint": hashlib.sha256(page.text_hint.encode("utf-8")).hexdigest(),
-        "prompt": PROMPT_REF,
+        "prompt": prompt_ref(prompt_name),
         "flavor": flavor,
         "task": TASK_FORMAT,
     }
+    if page.extra_images:  # absent for pages without them: keys of earlier runs stay valid
+        payload["extra"] = [_sha256_file(x) for x in page.extra_images]
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
 
@@ -327,27 +385,46 @@ def cache_dir(ctx: ExtractContext) -> Path:
     return ctx.out_dir / "pages"
 
 
-def cached_page(ctx: ExtractContext, page: PageImage, flavor: str) -> str | None:
+def cached_page(
+    ctx: ExtractContext, page: PageImage, flavor: str, prompt_name: str = PROMPT_NAME
+) -> str | None:
     """Cached Markdown of the page if its key matches (None when absent, stale or forced)."""
     if ctx.force or not page.image.is_file():
         return None
     base = cache_dir(ctx) / _page_name(page.number)
     md, key = base.with_suffix(".md"), base.with_suffix(".key")
     try:
-        if key.read_text(encoding="utf-8").strip() != page_key(page, flavor):
+        if key.read_text(encoding="utf-8").strip() != page_key(page, flavor, prompt_name):
             return None
         return md.read_text(encoding="utf-8")
     except OSError:
         return None
 
 
-def _store(ctx: ExtractContext, page: PageImage, flavor: str, text: str) -> None:
+def _store(
+    ctx: ExtractContext, page: PageImage, flavor: str, text: str, prompt_name: str = PROMPT_NAME
+) -> None:
     base = cache_dir(ctx) / _page_name(page.number)
     base.parent.mkdir(parents=True, exist_ok=True)
     with base.with_suffix(".md").open("w", encoding="utf-8", newline="\n") as fh:
         fh.write(text if text.endswith("\n") else text + "\n")
     with base.with_suffix(".key").open("w", encoding="utf-8", newline="\n") as fh:
-        fh.write(page_key(page, flavor) + "\n")
+        fh.write(page_key(page, flavor, prompt_name) + "\n")
+
+
+def agent_model(
+    settings: Settings, backend: str | None, *, tier: Tier = "light", stage: str = STAGE
+) -> tuple[str, str]:
+    """(backend, model of the tier) a vision run of `stage` starts with.
+
+    The model is "default" when the settings leave it empty (the CLI's own choice). A
+    fallback agent may take over a run; this is only the starting point (cache keys, plans).
+    """
+    agents = settings.agents
+    name = backend or settings.stages.backend_for(stage, agents)
+    cfg = getattr(agents, name, None)
+    model = (getattr(cfg, f"model_{tier}", "") or "") if cfg is not None else ""
+    return name, model or "default"
 
 
 # ---------------------------------------------------------------- concurrency
@@ -389,8 +466,23 @@ def _span(numbers: Sequence[int]) -> str:
     return ", ".join(map(str, nums))
 
 
+def _unique_name(directory: Path, name: str) -> str:
+    """`name`, or `2_name`, `3_name` … when the file exists in `directory`."""
+    candidate, n = name, 1
+    while (directory / candidate).exists():
+        n += 1
+        candidate = f"{n}_{name}"
+    return candidate
+
+
 def _run_batch(
-    ctx: ExtractContext, batch: Sequence[PageImage], *, flavor: str, tier: Tier
+    ctx: ExtractContext,
+    batch: Sequence[PageImage],
+    *,
+    flavor: str,
+    tier: Tier,
+    prompt_name: str = PROMPT_NAME,
+    stage: str = STAGE,
 ) -> _BatchOutcome:
     outcome = _BatchOutcome()
     numbers = [p.number for p in batch]
@@ -400,19 +492,25 @@ def _run_batch(
     try:
         images: list[Path] = []
         hints: list[Path] = []
+        extras: dict[int, list[str]] = {}
         for p in batch:
             name = _page_name(p.number)
             img = staging / f"{name}.png"
             shutil.copyfile(p.image, img)
+            images.append(img)
+            for extra in p.extra_images:
+                copy = staging / _unique_name(staging, extra.name.replace(",", "_"))
+                shutil.copyfile(extra, copy)
+                images.append(copy)
+                extras.setdefault(p.number, []).append(copy.name)
             hint = staging / f"{name}.txt"
             with hint.open("w", encoding="utf-8", newline="\n") as fh:
                 fh.write(p.text_hint)
-            images.append(img)
             hints.append(hint)
         bundle = create_bundle(
             ctx.topic_dir / "runs",
-            stage=STAGE,
-            task=batch_task(flavor, numbers),
+            stage=stage,
+            task=batch_task(flavor, numbers, prompt_name=prompt_name, extras=extras),
             contract=batch_contract(flavor, numbers),
             inputs=hints,
             images=images,
@@ -462,7 +560,7 @@ def _run_batch(
         ]
         outcome.pages[p.number] = normalized
         try:
-            _store(ctx, p, flavor, normalized)
+            _store(ctx, p, flavor, normalized, prompt_name)
         except OSError as exc:
             ctx.emit(f"{what}: кэш страницы {p.number} не записан ({exc})")
     status = "готово" if not outcome.failed else f"не распознано: {len(outcome.failed)}"
@@ -477,17 +575,25 @@ def transcribe_pages(
     flavor: Flavor,
     tier: Tier = "light",
     batch_size: int = DEFAULT_BATCH,
+    prompt_name: str = PROMPT_NAME,
+    stage: str = STAGE,
 ) -> VisionResult:
-    """Transcribe page images with the vision agent; cached pages are not sent again."""
+    """Transcribe page images with the vision agent; cached pages are not sent again.
+
+    `prompt_name` picks the prompt file (`vision_pages`: common part + the flavor's section;
+    any other name: the newest `<name>@<version>.md`, used whole); `stage` is the bundle's
+    stage and decides the agent through `stages.<…>` of the settings.
+    """
     if flavor not in FLAVORS:
         raise ValueError(f"Неизвестный вариант распознавания «{flavor}»")
+    prompt_source(prompt_name)  # an unknown prompt fails before any page is touched
     numbers = [p.number for p in pages]
     if len(set(numbers)) != len(numbers):
         raise ValueError("Номера страниц для распознавания повторяются")
     result = VisionResult()
     pending: list[PageImage] = []
     for p in sorted(pages, key=lambda x: x.number):
-        cached = cached_page(ctx, p, flavor)
+        cached = cached_page(ctx, p, flavor, prompt_name)
         if cached is not None:
             result.pages[p.number] = normalize_page_markdown(cached)
             result.cached_pages += 1
@@ -502,10 +608,24 @@ def transcribe_pages(
     batches = [pending[i : i + size] for i in range(0, len(pending), size)]
     workers = max(1, min(ctx.settings.agents.parallel_runs, len(batches)))
     if workers == 1:
-        outcomes = [_run_batch(ctx, b, flavor=flavor, tier=tier) for b in batches]
+        outcomes = [
+            _run_batch(ctx, b, flavor=flavor, tier=tier, prompt_name=prompt_name, stage=stage)
+            for b in batches
+        ]
     else:
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="h0lon-vision") as pool:
-            futures = [pool.submit(_run_batch, ctx, b, flavor=flavor, tier=tier) for b in batches]
+            futures = [
+                pool.submit(
+                    _run_batch,
+                    ctx,
+                    b,
+                    flavor=flavor,
+                    tier=tier,
+                    prompt_name=prompt_name,
+                    stage=stage,
+                )
+                for b in batches
+            ]
             outcomes = [f.result() for f in futures]
     for o in outcomes:
         result.pages.update(o.pages)

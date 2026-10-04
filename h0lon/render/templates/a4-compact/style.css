@@ -1,0 +1,177 @@
+/* H0lon a4-compact: print stylesheet for the HTML → PDF fallback (Chromium print-to-pdf).
+   Mirrors template.tex: A4, 9 pt, margins 12 mm, two columns, compact heading, no title
+   page and no contents. Tables span both columns. */
+
+@page {
+  size: A4;
+  margin: 11mm 12mm 15mm 12mm;
+  @bottom-left {
+    font: 7.5pt "Times New Roman", "Liberation Serif", serif;
+    color: #777;
+    vertical-align: top;
+    padding-top: 4mm;
+  }
+  @bottom-right {
+    content: counter(page);
+    font: 7.5pt "Times New Roman", "Liberation Serif", serif;
+    color: #777;
+    vertical-align: top;
+    padding-top: 4mm;
+  }
+}
+
+:root {
+  --text: #111;
+  --muted: #777;
+  --bar: #d6d6d6;
+  --rule: #222;
+}
+
+html {
+  font-family: "Times New Roman", "Liberation Serif", "Tinos", serif;
+  font-size: 9pt;
+  line-height: 1.17;
+  color: var(--text);
+  background: #fff;
+}
+body { margin: 0; }
+
+p {
+  margin: 0;
+  text-align: justify;
+  text-indent: 1em;
+  hyphens: auto;
+}
+h1 + p, h2 + p, h3 + p, h4 + p, figure + p, table + p, .h0-block p:first-child,
+li > p, dd > p, td p, th p, blockquote > p:first-child { text-indent: 0; }
+
+math { font-family: "Cambria Math", "STIX Two Math", math; font-size: 1.05em; }
+math[display="block"] { margin: 0.35em 0; }
+
+code, pre, kbd { font-family: Consolas, "DejaVu Sans Mono", monospace; }
+code { font-size: 0.92em; }
+
+a { color: inherit; text-decoration: none; }
+
+/* ------------------------------------------------------------ heading of the sheet */
+.h0-sheet-head { margin: 0 0 1.4mm; padding-bottom: 1.2mm; border-bottom: 0.5pt solid #777; }
+.h0-sheet-head p { margin: 0; text-indent: 0; text-align: left; }
+.h0-doc-title { font-size: 14pt; font-weight: bold; line-height: 1.2; }
+.h0-head-line { font-size: 7.5pt; color: #666; margin-top: 0.4mm !important; }
+.h0-head-line span + span::before { content: "\2002\2022\2002"; }
+
+/* ------------------------------------------------------------ the two columns */
+main {
+  column-count: 2;
+  column-gap: 6mm;
+  column-rule: 0.3pt solid #b5b5b5;
+  orphans: 2;
+  widows: 2;
+}
+/* A table (and a figure that is wider than a column) spans both columns, as in LaTeX. */
+main > table, main > div > table, main > section > table {
+  column-span: all;
+}
+
+/* ------------------------------------------------------------ headings */
+h1, h2, h3, h4 { font-weight: bold; break-after: avoid; page-break-after: avoid; text-align: left; }
+h1 { font-size: 10.5pt; margin: 0.9em 0 0.35em; line-height: 1.2; }
+h2 { font-size: 9pt; margin: 0.65em 0 0.2em; }
+h3 { font-size: 9pt; font-style: italic; margin: 0.5em 0 0.15em; }
+h4 { font-size: 9pt; font-style: italic; margin: 0.45em 0 0.15em; }
+.header-section-number { margin-right: 0.3em; }
+
+/* ------------------------------------------------------------ source anchors */
+sup.h0src {
+  font-family: Arial, "Liberation Sans", sans-serif;
+  font-size: 0.55em;
+  color: #808080;
+  margin-left: 0.04em;
+  vertical-align: 0.75em;
+  line-height: 0;
+  white-space: nowrap;
+}
+.h0src-inline { font-family: Arial, "Liberation Sans", sans-serif; font-size: 0.7em; color: #808080; }
+.unreadable { color: #8a8a8a; }
+
+/* ------------------------------------------------------------ semantic blocks */
+.h0-block { margin: 0.45em 0; }
+.h0-label { font-weight: bold; }
+.definition > p:first-child > .h0-label::before,
+.problem > p:first-child > .h0-label::before { content: "\25B2\2002"; font-size: 0.8em; }
+.definition .h0-block-title, .problem .h0-block-title, .example .h0-block-title,
+.remark .h0-block-title { font-style: italic; }
+.remark .h0-label { font-style: italic; }
+
+.theorem, .lemma, .proposition, .corollary { font-style: italic; }
+.theorem .h0-label, .lemma .h0-label, .proposition .h0-label, .corollary .h0-label,
+.theorem .h0-block-title, .lemma .h0-block-title, .proposition .h0-block-title,
+.corollary .h0-block-title {
+  font-style: normal; font-weight: bold;
+}
+
+.proof, .solution {
+  border-left: 2.5pt solid var(--bar);
+  padding-left: 2.5mm;
+  margin: 0.35em 0 0.45em;
+}
+.h0-head { font-weight: bold; margin-bottom: 0.15em; break-after: avoid; }
+.h0-head .h0-block-title { font-weight: normal; font-style: italic; }
+.h0-head + p { text-indent: 0; }
+
+.editorial, .conflict, .uncertain, .author-question {
+  border-left: 1pt solid #b3b3b3;
+  padding-left: 2.5mm;
+  font-size: 0.92em;
+}
+.editorial .h0-label, .conflict .h0-label, .uncertain .h0-label,
+.author-question .h0-label { color: #4d4d4d; }
+.editorial .h0-block-title, .conflict .h0-block-title, .uncertain .h0-block-title,
+.author-question .h0-block-title { font-style: italic; }
+
+/* ------------------------------------------------------------ lists */
+ul, ol { margin: 0.2em 0; padding-left: 1.3em; }
+li { margin: 0.05em 0; }
+li > p { text-align: justify; }
+
+/* ------------------------------------------------------------ figures and tables */
+figure { margin: 0.5em auto; text-align: center; break-inside: avoid; }
+figure img { max-width: 100%; height: auto; }
+figcaption, caption { font-size: 0.9em; margin-top: 0.3em; }
+.h0-caption-label { font-weight: bold; }
+img { max-width: 100%; }
+
+table {
+  border-collapse: collapse;
+  margin: 0.5em auto;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  font-size: 0.85em;
+  width: 100%;
+}
+thead th { border-bottom: 0.6px solid var(--rule); text-align: left; }
+th, td { padding: 0.15em 0.5em; vertical-align: top; }
+caption { caption-side: top; margin-bottom: 0.3em; }
+
+/* ------------------------------------------------------------ code */
+pre {
+  font-size: 7pt;
+  line-height: 1.25;
+  border-left: 1pt solid #bfbfbf;
+  padding: 0.1em 0 0.1em 2mm;
+  margin: 0.4em 0 0.4em 0.5mm;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  break-inside: auto;
+}
+div.sourceCode { margin: 0; background: none; }
+pre code { font-size: inherit; }
+
+/* ------------------------------------------------------------ footnotes */
+.footnote-ref { font-size: 0.75em; vertical-align: super; line-height: 0; }
+section.footnotes { font-size: 0.9em; margin-top: 1em; border-top: 0.5px solid #999; }
+section.footnotes hr { display: none; }
+
+blockquote { margin: 0.4em 1em; }
+hr { border: none; border-top: 0.5px solid #999; }
+del { text-decoration-thickness: 1px; }

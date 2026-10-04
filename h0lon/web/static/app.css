@@ -954,6 +954,64 @@ textarea {
   background: var(--surface-2);
 }
 
+/* ---------- variations ---------- */
+
+.variants-table form {
+  margin: 0;
+}
+
+.variants-table form .btn {
+  width: 100%;
+}
+
+.variant-form {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.variants-table + .variant-form {
+  margin-top: 0.4rem;
+}
+
+.variant-form [hidden] {
+  display: none;
+}
+
+.variant-presets {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.6rem 0.9rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.variant-presets legend {
+  padding: 0 0.3rem;
+  font-weight: 600;
+}
+
+.variant-preset {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.variant-preset input {
+  margin-top: 0.3rem;
+}
+
+.variant-preset-text {
+  display: grid;
+  gap: 0.1rem;
+}
+
 /* ---------- source review ---------- */
 
 .review-head {

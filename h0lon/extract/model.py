@@ -81,6 +81,9 @@ class PageImage:
     image: Path  # PNG, long side ≤ 2000 px
     text_hint: str = ""  # text layer of the page (may be garbled for formulas), may be empty
     reason: str = ""  # why the page goes to vision: "math", "scan", "graphic", "low-text"
+    # More pictures of the same page for the agent (handwriting: the contrast-enhanced copy).
+    # They go to the bundle next to `image` and are part of the page cache key.
+    extra_images: tuple[Path, ...] = ()
 
 
 @dataclass

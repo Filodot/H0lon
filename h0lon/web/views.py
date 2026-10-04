@@ -2,8 +2,8 @@
 
 Pages are rendered on the server; actions are plain form posts that answer with a redirect
 (POST/redirect/GET) and leave a short message for the next page (`FlashStore`). Long work is
-never done in a request: extraction, build and approval are jobs (`h0lon.web.jobs`) whose
-progress the page follows over Server-Sent Events. Errors are shown as a readable Russian
+never done in a request: extraction, build, approval and variations are jobs (`h0lon.web.jobs`)
+whose progress the page follows over Server-Sent Events. Errors are shown as a readable Russian
 message, never as a traceback.
 """
 
@@ -442,6 +442,64 @@ def _coverage_view(status: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _variants_view(request: Request, ref: TopicRef) -> dict[str, Any]:
+    """The «Вариации» block: presets for the form and the variations already built."""
+    from h0lon.render import list_templates
+    from h0lon.synth import variants as variants_mod
+
+    settings = request.app.state.settings
+    try:
+        found = variants_mod.list_variants(ref.path)
+    except OSError:
+        found = []
+    items: list[dict[str, Any]] = []
+    for it in found:
+        label, cls = present.variant_state(bool(it["stale"]))
+        pdf_url = md_url = ""
+        target = present.resolve_topic_file(ref.path, it["pdf"]) if it["pdf"] else None
+        if target is not None:
+            pdf_url = f"{ref.file_url(it['pdf'])}?v={int(target.stat().st_mtime)}"
+        if it["md"] and present.resolve_topic_file(ref.path, it["md"]) is not None:
+            md_url = ref.file_url(it["md"])
+        items.append(
+            {
+                "slug": it["slug"],
+                "title": it["title"],
+                "prompt": present.snippet(it["prompt"]),
+                "template": it.get("template") or "",
+                "created": present.format_iso(it.get("created")),
+                "stale": bool(it["stale"]),
+                "state": label,
+                "state_class": cls,
+                "pdf_url": pdf_url,
+                "md_url": md_url,
+                "pages": it.get("pages"),
+                "rebuild": {
+                    "preset": it.get("preset") or "",
+                    "prompt": it.get("prompt") or "",
+                    "template": it.get("template_requested") or "",
+                },
+            }
+        )
+    presets = [
+        {
+            "value": name,
+            "title": variants_mod.PRESET_TITLES[name],
+            "hint": present.VARIANT_PRESET_HINTS[name],
+            "tier": variants_mod.TIER_LABELS.get(variants_mod.PRESETS.get(name, ""), "без агента"),
+        }
+        for name in variants_mod.PRESET_ORDER
+    ]
+    return {
+        "has_master": (ref.path / present.MASTER_MD).is_file(),
+        "rows": items,
+        "stale": sum(1 for i in items if i["stale"]),
+        "presets": presets,
+        "templates": [(t.name, f"{t.name} — {t.title}") for t in list_templates(settings)],
+        "template_defaults": variants_mod.PRESET_TEMPLATES,
+    }
+
+
 def _result_rows(job: Job) -> list[dict[str, Any]]:
     """Per-stage / per-source lines of a finished job for the «Итог» block."""
     result = job.result or {}
@@ -468,6 +526,22 @@ def _result_rows(job: Job) -> list[dict[str, Any]]:
                     "warnings": list(st.get("warnings") or [])[:5],
                 }
             )
+    elif job.kind == "variant" and result:
+        if not result.get("ok"):
+            verdict, cls = "ошибка", "bad"
+        elif result.get("cached"):
+            verdict, cls = "из кэша", "info"
+        else:
+            verdict, cls = "готово", "ok"
+        rows.append(
+            {
+                "title": result.get("title") or job.title,
+                "verdict": verdict,
+                "class": cls,
+                "errors": list(result.get("errors") or [])[:5],
+                "warnings": list(result.get("warnings") or [])[:5],
+            }
+        )
     elif job.kind == "extract":
         for res in result.get("results") or []:
             if not res.get("ok"):
@@ -540,6 +614,7 @@ def _topic_context(request: Request, ref: TopicRef) -> dict[str, Any]:
         "stages": _stage_rows(status),
         "coverage": _coverage_view(status),
         "master": _master_view(ref, status),
+        "variants": _variants_view(request, ref),
         "job": job_view(last) if last is not None else None,
         "busy": active is not None,
         "parallel": parallel,
@@ -775,6 +850,58 @@ def start_build(
 def start_approve(request: Request, course: str, slug: str) -> Response:
     ref = get_topic(request, course, slug)
     return _start_job(request, ref, "approve")
+
+
+@router.post("/t/{course}/{slug}/variant")
+def start_variant(
+    request: Request,
+    course: str,
+    slug: str,
+    preset: Annotated[str, Form()] = "",
+    prompt: Annotated[str, Form()] = "",
+    template: Annotated[str, Form()] = "",
+    backend: Annotated[str, Form()] = "",
+    force: Annotated[str, Form()] = "",
+) -> Response:
+    from h0lon.render import get_template
+    from h0lon.synth import variants as variants_mod
+
+    ref = get_topic(request, course, slug)
+    try:
+        kind, text, template_name = variants_mod.normalise_request(preset, prompt, template)
+    except ValueError as exc:
+        return redirect(request, ref.url, flash("error", str(exc)), fragment="variants")
+    if not (ref.path / present.MASTER_MD).is_file():
+        return redirect(
+            request,
+            ref.url,
+            flash("warn", "Вариации делаются из мастер-конспекта: сначала соберите его."),
+            fragment="variants",
+        )
+    wanted = template_name or variants_mod.PRESET_TEMPLATES.get(kind)
+    if wanted:  # a missing template is refused before a job is created
+        try:
+            get_template(wanted, request.app.state.settings)
+        except KeyError:
+            return redirect(
+                request,
+                ref.url,
+                flash("error", f"Шаблон «{wanted}» не найден."),
+                fragment="variants",
+            )
+        except ValueError as exc:
+            return redirect(request, ref.url, flash("error", str(exc)), fragment="variants")
+    return _start_job(
+        request,
+        ref,
+        "variant",
+        preset=kind,
+        prompt=text,
+        template=template_name,
+        backend=_backend(backend),
+        force=_flag(force),
+        label=variants_mod.preset_title(kind, template_name),
+    )
 
 
 @router.post("/jobs/{job_id}/cancel")

@@ -420,6 +420,31 @@ def split_links(text: str) -> list[str]:
     return [line.strip() for line in (text or "").splitlines() if line.strip()]
 
 
+# ---------------------------------------------------------------- variations (M7)
+
+# What a preset gives, for the form of the topic page (value, name, hint).
+VARIANT_PRESET_HINTS: dict[str, str] = {
+    "brief": "Только главное: определения, ключевые теоремы, карта связей. 2–4 страницы.",
+    "study": "Учебный конспект: мотивация, интуиция, формализм, примеры, типичные ошибки, "
+    "вопросы для самопроверки.",
+    "cheatsheet": "Шпаргалка на 1–2 листа: формулы и условия применимости, мелкий шрифт в две "
+    "колонки.",
+    "custom": "Документ по вашему запросу: опишите формат, объём, акцент.",
+    "template": "Тот же текст мастера в другом шаблоне, без агента.",
+}
+
+
+def snippet(text: object, limit: int = 120) -> str:
+    """One line of at most `limit` characters (for a request shown in a list)."""
+    line = " ".join(str(text or "").split())
+    return line if len(line) <= limit else line[: limit - 1].rstrip() + "…"
+
+
+def variant_state(stale: bool) -> tuple[str, str]:
+    """(label, badge class) of a variation: current or stale after a new master."""
+    return ("устарело", "warn") if stale else ("актуально", "ok")
+
+
 def appendix_links(master_md: Path) -> list[tuple[str, str]]:
     """(anchor id, title) of the appendices that master.md really has."""
     try:

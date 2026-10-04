@@ -1,0 +1,492 @@
+$--
+$-- H0lon template "a4-compact" for Pandoc 3.x + XeLaTeX.
+$-- A dense reference sheet: A4, 9 pt, narrow margins (12 mm), two columns (multicol), no
+$-- title page and no table of contents - a compact heading with the title opens the document.
+$-- Derived from "a4-notes": the same semantic environments (hz*, see filters/blocks.lua) and
+$-- source anchors (filters/srcrefs.lua), set smaller and without wide margin decorations.
+$--
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode$for(hyperrefoptions)$,$hyperrefoptions$$endfor$}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+% The base size is 9 pt, set below by hand: extarticle (extsizes) is not part of every TeX
+% installation, article has no 9 pt option. The `fontsize` variable is therefore not used.
+\documentclass[10pt,a4paper$for(classoption)$,$classoption$$endfor$]{article}
+
+\usepackage{iftex}
+\ifPDFTeX
+  \errmessage{Template a4-compact requires XeLaTeX (fontspec, unicode-math, polyglossia)}
+\fi
+
+% ---------------------------------------------------------------- 9 pt base size
+\makeatletter
+\renewcommand\normalsize{%
+  \@setfontsize\normalsize{9}{10.4}%
+  \abovedisplayskip 4\p@ \@plus1.5\p@ \@minus2\p@
+  \abovedisplayshortskip \z@ \@plus1.5\p@
+  \belowdisplayshortskip 2.5\p@ \@plus1.5\p@ \@minus1.5\p@
+  \belowdisplayskip \abovedisplayskip
+  \let\@listi\@listI}
+\renewcommand\small{%
+  \@setfontsize\small{8}{9.2}%
+  \abovedisplayskip 3.5\p@ \@plus1\p@ \@minus1.5\p@
+  \abovedisplayshortskip \z@ \@plus1\p@
+  \belowdisplayshortskip 2\p@ \@plus1\p@ \@minus1\p@
+  \def\@listi{\leftmargin\leftmargini \topsep 3\p@ \@plus1\p@ \@minus1\p@
+              \parsep 0\p@ \itemsep 1\p@}%
+  \belowdisplayskip \abovedisplayskip}
+\renewcommand\footnotesize{%
+  \@setfontsize\footnotesize{7.5}{8.7}%
+  \abovedisplayskip 3\p@ \@plus1\p@ \@minus1\p@
+  \abovedisplayshortskip \z@ \@plus1\p@
+  \belowdisplayshortskip 2\p@ \@plus1\p@ \@minus1\p@
+  \def\@listi{\leftmargin\leftmargini \topsep 2\p@ \@plus1\p@ \@minus1\p@
+              \parsep 0\p@ \itemsep 1\p@}%
+  \belowdisplayskip \abovedisplayskip}
+\renewcommand\scriptsize{\@setfontsize\scriptsize{6.5}{7.5}}
+\renewcommand\tiny{\@setfontsize\tiny{5}{6}}
+\renewcommand\large{\@setfontsize\large{10.5}{12.2}}
+\renewcommand\Large{\@setfontsize\Large{12}{14}}
+\renewcommand\LARGE{\@setfontsize\LARGE{14}{16.5}}
+\makeatother
+\normalsize
+
+% ---------------------------------------------------------------- math and fonts
+\usepackage{amsmath,mathtools}
+\usepackage{fontspec}
+\usepackage{unicode-math}
+\defaultfontfeatures{Scale=MatchLowercase}
+\defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\setmainfont[$for(mainfontoptions)$$mainfontoptions$$sep$,$endfor$]{$if(mainfont)$$mainfont$$else$Times New Roman$endif$}
+\setsansfont[$for(sansfontoptions)$$sansfontoptions$$sep$,$endfor$]{$if(sansfont)$$sansfont$$else$Arial$endif$}
+\setmonofont[$for(monofontoptions)$$monofontoptions$$sep$,$endfor$]{$if(monofont)$$monofont$$else$Consolas$endif$}
+\setmathfont[$for(mathfontoptions)$$mathfontoptions$$sep$,$endfor$]{$if(mathfont)$$mathfont$$else$Cambria Math$endif$}
+% Report glyphs missing from the selected fonts in the log ("Missing character").
+\tracinglostchars=2\relax
+
+\usepackage{polyglossia}
+\setdefaultlanguage{russian}
+\setotherlanguage{english}
+
+% ---------------------------------------------------------------- page layout
+\usepackage[a4paper,left=12mm,right=12mm,top=11mm,bottom=15mm,footskip=7mm,headheight=0pt,headsep=0pt$for(geometry)$,$geometry$$endfor$]{geometry}
+\usepackage{microtype}
+\UseMicrotypeSet[protrusion]{basicmath}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{needspace}
+\usepackage{xcolor}
+\usepackage{mdframed}
+\usepackage{etoolbox}
+\usepackage{multicol}
+\usepackage{caption}
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+
+\setlength{\parindent}{1em}
+\setlength{\parskip}{0pt}
+% Narrow columns: accept slightly looser lines instead of overfull boxes.
+\tolerance=1800
+\setlength{\emergencystretch}{3em}
+\hfuzz=2pt
+\linespread{$if(linestretch)$$linestretch$$else$1$endif$}
+\raggedbottom
+\clubpenalty=5000
+\widowpenalty=5000
+
+\setlist{itemsep=0pt,topsep=2pt,parsep=0pt,partopsep=0pt}
+\setlist[enumerate]{leftmargin=*,widest=9,labelsep=0.4em}
+\setlist[itemize]{leftmargin=1.2em,labelsep=0.4em}
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+% Two columns for the whole text.
+\setlength{\columnsep}{6mm}
+\setlength{\columnseprule}{0.3pt}
+\renewcommand{\columnseprulecolor}{\color{black!35}}
+\setlength{\multicolsep}{3pt plus 2pt minus 1pt}
+\setlength{\premulticols}{3\baselineskip}
+\setlength{\postmulticols}{0pt}
+
+% ---------------------------------------------------------------- wide displays
+% A display formula cannot be broken: wider than a (narrow) column, it would run into the
+% neighbouring column. Such a formula is scaled down to the column width; the others are
+% set as usual by the original \[ ... \]. (Delimited by \], so a formula with \tag or an
+% alignment environment of its own is not meant for this; Pandoc writes plain \[ ... \].)
+\makeatletter
+\newsavebox{\hz@mbox}
+\long\def\hz@display#1\]{%
+  \sbox{\hz@mbox}{\(\displaystyle #1\)}%
+  \ifdim\wd\hz@mbox>\linewidth
+    \par\addvspace{\abovedisplayskip}\noindent
+    \hfil\resizebox{\linewidth}{!}{\usebox{\hz@mbox}}\hfil\par
+    \addvspace{\belowdisplayskip}\noindent\ignorespaces
+  \else
+    \hz@opendisplay #1\hz@closedisplay
+  \fi}
+% \[ is a robust command: its body lives in the control sequence named "[ " (with a space),
+% which DeclareRobustCommand would overwrite, so the original body is copied first.
+\AtBeginDocument{%
+  \expandafter\let\expandafter\hz@opendisplay\csname [ \endcsname
+  \let\hz@closedisplay\]%
+  \DeclareRobustCommand{\[}{\relax\ifmmode\@badmath\else\expandafter\hz@display\fi}}
+\makeatother
+
+% ---------------------------------------------------------------- footer
+\newcommand{\HzCourse}{$if(course)$$course$$endif$}
+\newcommand{\HzShortTitle}{$if(short-title)$$short-title$$else$$title$$endif$}
+\makeatletter
+\def\ps@hzcompact{%
+  \let\@oddhead\@empty
+  \let\@evenhead\@empty
+  \def\@oddfoot{\footnotesize\color{black!55}\HzShortTitle\hfil\thepage}%
+  \let\@evenfoot\@oddfoot}
+\makeatother
+\pagestyle{hzcompact}
+
+% ---------------------------------------------------------------- sections
+$if(numbersections)$
+\setcounter{secnumdepth}{$if(secnumdepth)$$secnumdepth$$else$3$endif$}
+$else$
+\setcounter{secnumdepth}{-\maxdimen} % remove section numbering
+$endif$
+
+\titleformat{\section}{\bfseries\large\raggedright}{\thesection.}{0.4em}{}
+\titlespacing*{\section}{0pt}{0.9\baselineskip}{0.35\baselineskip}
+\titleformat{\subsection}{\bfseries\normalsize\raggedright}{\thesubsection.}{0.4em}{}
+\titlespacing*{\subsection}{0pt}{0.6\baselineskip}{0.2\baselineskip}
+\titleformat{\subsubsection}{\bfseries\itshape\normalsize\raggedright}{\thesubsubsection.}{0.4em}{}
+\titlespacing*{\subsubsection}{0pt}{0.45\baselineskip}{0.15\baselineskip}
+% Unnumbered headings (.unnumbered → \section*): the PDF bookmark needs its own anchor.
+\titleformat{name=\section,numberless}{\bfseries\large\raggedright}{}{0pt}{}[\phantomsection]
+\titleformat{name=\subsection,numberless}{\bfseries\normalsize\raggedright}{}{0pt}{}[\phantomsection]
+\titleformat{name=\subsubsection,numberless}{\bfseries\itshape\normalsize\raggedright}{}{0pt}{}[\phantomsection]
+% Keep a heading together with the start of what follows.
+\pretocmd{\section}{\Needspace{4\baselineskip}}{}{}
+\pretocmd{\subsection}{\Needspace{3\baselineskip}}{}{}
+\pretocmd{\subsubsection}{\Needspace{3\baselineskip}}{}{}
+
+% Appendices: a level-1 header with class .appendix emits \hzappendix (once).
+\newcommand{\hzappendixname}{$if(appendix-name)$$appendix-name$$else$Приложение$endif$}
+\newif\ifhzappendix
+\newcommand{\hzappendix}{%
+  \ifhzappendix\else
+    \global\hzappendixtrue
+    \appendix
+    \renewcommand{\thesection}{\ifnum\value{section}>0 \Asbuk{section}\fi}%
+    \titleformat{\section}{\bfseries\large\raggedright}{\hzappendixname~\thesection.}{0.4em}{}%
+  \fi}
+
+% ---------------------------------------------------------------- semantic blocks
+% Counters are per section: "Определение 2.1." (just "1" before the first section).
+\newcommand{\hzdeclarecounter}[1]{%
+  \newcounter{#1}[section]%
+  \expandafter\renewcommand\csname the#1\endcsname{%
+    \ifnum\value{section}>0 \thesection.\fi\arabic{#1}}}
+\hzdeclarecounter{hzdefinition}
+\hzdeclarecounter{hztheorem}
+\hzdeclarecounter{hzlemma}
+\hzdeclarecounter{hzproposition}
+\hzdeclarecounter{hzcorollary}
+\hzdeclarecounter{hzexample}
+\hzdeclarecounter{hzproblem}
+
+% A breakable gap: \enspace is a kern, and a head like "Предложение 1.1. (Название) Текст"
+% would be one unbreakable piece, too wide for a narrow column.
+\newcommand{\hzgap}{\hskip 0.5em plus 0.2em minus 0.1em\relax}
+
+\newcommand{\hzmark}{%
+  \raisebox{0.06ex}{\scalebox{0.7}{\ensuremath{\bigblacktriangleup}}}\enspace}
+
+% Run-in block: #1 counter (empty = unnumbered), #2 label, #3 mark, #4 title, #5 body font.
+% \refstepcounter (the hyperref anchor) comes after \Needspace and \noindent: when the
+% block moves to the next column or page, links must land there.
+\newcommand{\hzruninhead}[5]{%
+  \Needspace{2\baselineskip}\par\smallskip\noindent
+  \ifstrempty{#1}{}{\refstepcounter{#1}}%
+  #3\textbf{#2\ifstrempty{#1}{}{~\csname the#1\endcsname}.}%
+  \ifstrempty{#4}{}{\hzgap{}\emph{#4.}}\hzgap{}#5\ignorespaces}
+
+\newenvironment{hzdefinition}[1][]
+  {\hzruninhead{hzdefinition}{Определение}{\hzmark}{#1}{}}
+  {\par\smallskip}
+\newenvironment{hzproblem}[1][]
+  {\hzruninhead{hzproblem}{Задача}{\hzmark}{#1}{}}
+  {\par\smallskip}
+\newenvironment{hzexample}[1][]
+  {\hzruninhead{hzexample}{Пример}{}{#1}{}}
+  {\par\smallskip}
+
+% Statements: bold numbered label, italic text. Theorems are run-in as well (a label
+% column does not fit into a narrow column).
+\newcommand{\hzstatementhead}[3]{%
+  \Needspace{2\baselineskip}\par\smallskip\noindent\refstepcounter{#1}%
+  \textbf{#2~\csname the#1\endcsname.}%
+  \ifstrempty{#3}{}{\hzgap{}\textbf{(#3)}}\hzgap{}\itshape\ignorespaces}
+\newenvironment{hztheorem}[1][]
+  {\hzstatementhead{hztheorem}{Теорема}{#1}}
+  {\par\smallskip}
+\newenvironment{hzlemma}[1][]
+  {\hzstatementhead{hzlemma}{Лемма}{#1}}
+  {\par\smallskip}
+\newenvironment{hzproposition}[1][]
+  {\hzstatementhead{hzproposition}{Предложение}{#1}}
+  {\par\smallskip}
+\newenvironment{hzcorollary}[1][]
+  {\hzstatementhead{hzcorollary}{Следствие}{#1}}
+  {\par\smallskip}
+
+\newenvironment{hzremark}[1][]
+  {\par\smallskip\noindent\textbf{\textit{Замечание.}}%
+   \ifstrempty{#1}{}{\hzgap{}\emph{#1.}}\hzgap{}\ignorespaces}
+  {\par\smallskip}
+
+% Proofs and solutions: a thin gray bar on the left, breakable across columns.
+\mdfdefinestyle{hzbar}{%
+  topline=false,bottomline=false,rightline=false,leftline=true,
+  linecolor=black!22,linewidth=2.5pt,
+  innerleftmargin=2.5mm,innerrightmargin=0pt,
+  innertopmargin=0pt,innerbottommargin=0pt,
+  leftmargin=0pt,rightmargin=0pt,
+  skipabove=0.3\baselineskip,skipbelow=0.4\baselineskip,
+  splittopskip=0pt,splitbottomskip=0pt}
+\newcommand{\hzbarhead}[2]{%
+  \noindent\textbf{#1}\ifstrempty{#2}{}{\hzgap{}\textit{(#2)}}\par
+  \noindent\ignorespaces}
+\newenvironment{hzproof}[1][]
+  {\begin{mdframed}[style=hzbar]\hzbarhead{Доказательство}{#1}}
+  {\end{mdframed}}
+\newenvironment{hzsolution}[1][]
+  {\begin{mdframed}[style=hzbar]\hzbarhead{Решение}{#1}}
+  {\end{mdframed}}
+
+% Service blocks (appendices): thin bar, smaller type, run-in label.
+\mdfdefinestyle{hznote}{%
+  topline=false,bottomline=false,rightline=false,leftline=true,
+  linecolor=black!30,linewidth=1pt,
+  innerleftmargin=2.5mm,innerrightmargin=0pt,
+  innertopmargin=0pt,innerbottommargin=0pt,
+  leftmargin=0pt,rightmargin=0pt,
+  skipabove=0.3\baselineskip,skipbelow=0.4\baselineskip,
+  splittopskip=0pt,splitbottomskip=0pt}
+\newcommand{\hznotehead}[2]{%
+  \small\noindent\textbf{\textcolor{black!70}{#1.}}%
+  \ifstrempty{#2}{}{\hzgap{}\emph{#2.}}\hzgap{}\ignorespaces}
+\newenvironment{hzeditorial}[1][]
+  {\begin{mdframed}[style=hznote]\hznotehead{Редакторское дополнение}{#1}}
+  {\end{mdframed}}
+\newenvironment{hzconflict}[1][]
+  {\begin{mdframed}[style=hznote]\hznotehead{Расхождение источников}{#1}}
+  {\end{mdframed}}
+\newenvironment{hzuncertain}[1][]
+  {\begin{mdframed}[style=hznote]\hznotehead{Требует проверки}{#1}}
+  {\end{mdframed}}
+\newenvironment{hzauthorquestion}[1][]
+  {\begin{mdframed}[style=hznote]\hznotehead{Вопрос автора}{#1}}
+  {\end{mdframed}}
+
+% Compact source anchor: tiny gray superscript.
+\DeclareRobustCommand{\hzsrc}[1]{%
+  \kern0.04em\textsuperscript{\textcolor{black!50}{\sffamily\fontsize{5pt}{5.5pt}\selectfont #1}}}
+% Anchor that opens a line (table cell, Source Doc heading): baseline locator.
+\DeclareRobustCommand{\hzsrcinline}[1]{%
+  \textcolor{black!50}{\sffamily\fontsize{6pt}{7pt}\selectfont #1}}
+\newcommand{\unreadable}{\textcolor{black!60}{[неразборчиво]}}
+\newcommand{\hzunreadable}[1]{\textcolor{black!60}{#1}}
+
+% ---------------------------------------------------------------- code
+\usepackage{fancyvrb}
+\RecustomVerbatimEnvironment{verbatim}{Verbatim}{fontsize=\scriptsize,frame=leftline,
+  framerule=0.8pt,rulecolor=\color{black!25},framesep=2mm,xleftmargin=0.5mm}
+$if(verbatim-in-note)$
+\VerbatimFootnotes % allow verbatim text in footnotes
+$endif$
+$if(highlighting-macros)$
+$highlighting-macros$
+\RecustomVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\},fontsize=\scriptsize,
+  frame=leftline,framerule=0.8pt,rulecolor=\color{black!25},framesep=2mm,xleftmargin=0.5mm}
+$endif$
+
+% ---------------------------------------------------------------- tables
+\usepackage{longtable,booktabs,array}
+\newcounter{none} % for unnumbered tables
+$if(multirow)$
+\usepackage{multirow}
+$endif$
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+\captionsetup{font=footnotesize,labelfont=bf,labelsep=period,hypcap=false}
+\renewcommand{\arraystretch}{1.1}
+\setlength{\extrarowheight}{0.5pt}
+\setlength{\tabcolsep}{4pt}
+\AtBeginEnvironment{longtable}{\footnotesize}
+% longtable cannot work inside multicols (it takes over the page builder). A table therefore
+% interrupts the columns: the text above is balanced, the table spans the full width, the
+% columns go on below it. Only a table placed directly in the columns is handled; a table
+% inside another environment (a list, a proof) makes XeLaTeX fail, and the HTML fallback
+% engine takes over.
+% Pandoc wraps a table without a caption into a brace group, { \def\LTcaptype{none} ... },
+% and \end{multicols} cannot be given inside it: that group is left first (and opened again,
+% with \LTcaptype restored, for the closing brace that Pandoc writes after the table); the
+% columns are entered again after that closing brace (\aftergroup).
+% The order matters: \makesavenoteenv (footnotes in tables) opens its own group in a
+% before-begin hook, so the columns must be left by a hook that is registered before it
+% and entered again by one that is registered after it.
+\makeatletter
+\newcount\hz@interrupted % 0: columns not interrupted, 1: left directly, 2: left from a { group
+\newcommand{\hz@reenter}{\begin{multicols}{2}}
+\BeforeBeginEnvironment{longtable}{%
+  \ifdefstring{\@currenvir}{multicols}{%
+    \ifnum\currentgrouptype=1 % a { group
+      \xdef\hz@ltcaptype{\noexpand\def\noexpand\LTcaptype{\LTcaptype}}%
+      \egroup
+      \end{multicols}%
+      \bgroup
+      \hz@ltcaptype
+      \global\hz@interrupted=2
+    \else
+      \end{multicols}%
+      \global\hz@interrupted=1
+    \fi}{}}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
+\makeatletter
+\AfterEndEnvironment{longtable}{%
+  \ifcase\hz@interrupted
+  \or \global\hz@interrupted=0 \begin{multicols}{2}%
+  \or \global\hz@interrupted=0 \aftergroup\hz@reenter
+  \fi}
+\makeatother
+
+% ---------------------------------------------------------------- graphics
+\usepackage{graphicx}
+\makeatletter
+\newsavebox\pandoc@box
+\newcommand*\pandocbounded[1]{% scales image to fit in text height/width
+  \sbox\pandoc@box{#1}%
+  \Gscale@div\@tempa{\textheight}{\dimexpr\ht\pandoc@box+\dp\pandoc@box\relax}%
+  \Gscale@div\@tempb{\linewidth}{\wd\pandoc@box}%
+  \ifdim\@tempb\p@<\@tempa\p@\let\@tempa\@tempb\fi% select the smaller of both
+  \ifdim\@tempa\p@<\p@\scalebox{\@tempa}{\usebox\pandoc@box}%
+  \else\usebox{\pandoc@box}%
+  \fi%
+}
+% multicol drops floats ("Floats ... not allowed inside multicols"): a figure is set in place,
+% in a box that is as wide as the column; \caption works through \@captype.
+\renewenvironment{figure}[1][]
+  {\par\smallskip\noindent\minipage{\linewidth}\def\@captype{figure}}
+  {\endminipage\par\smallskip}
+\makeatother
+$if(subfigure)$
+\usepackage{subcaption}
+$endif$
+
+% ---------------------------------------------------------------- strikeout / underline / mark
+% Pandoc emits \st, \ul, \hl (soul). soul 3.x loses Cyrillic under XeLaTeX, so map to ulem.
+\usepackage[normalem]{ulem}
+\newcommand{\st}[1]{\sout{#1}}
+\newcommand{\ul}[1]{\uline{#1}}
+\newcommand{\hl}[1]{\bgroup\markoverwith{\textcolor{yellow!45}{\rule[-.3ex]{2pt}{2.5ex}}}\ULon{#1}}
+
+$if(csl-refs)$
+% ---------------------------------------------------------------- CSL citations
+\NewDocumentCommand\citeproctext{}{}
+\NewDocumentCommand\citeproc{mm}{%
+  \begingroup\def\citeproctext{#2}\cite{#1}\endgroup}
+\makeatletter
+ % allow citations to break across lines
+ \let\@cite@ofmt\@firstofone
+ % avoid brackets around text for \cite:
+ \def\@biblabel#1{}
+ \def\@cite#1#2{{#1\if@tempswa , #2\fi}}
+\makeatother
+\newlength{\cslhangindent}
+\setlength{\cslhangindent}{1.2em}
+\newlength{\csllabelwidth}
+\setlength{\csllabelwidth}{2.4em}
+\newenvironment{CSLReferences}[2] % #1 hanging-indent, #2 entry-spacing
+ {\begin{list}{}{%
+  \setlength{\itemindent}{0pt}
+  \setlength{\leftmargin}{0pt}
+  \setlength{\parsep}{0pt}
+  % turn on hanging indent if param 1 is 1
+  \ifodd #1
+   \setlength{\leftmargin}{\cslhangindent}
+   \setlength{\itemindent}{-1\cslhangindent}
+  \fi
+  % set entry spacing
+  \setlength{\itemsep}{#2\baselineskip}}}
+ {\end{list}}
+\newcommand{\CSLBlock}[1]{\hfill\break\parbox[t]{\linewidth}{\strut\ignorespaces#1\strut}}
+\newcommand{\CSLLeftMargin}[1]{\parbox[t]{\csllabelwidth}{\strut#1\strut}}
+\newcommand{\CSLRightInline}[1]{\parbox[t]{\linewidth - \csllabelwidth}{\strut#1\strut}}
+\newcommand{\CSLIndent}[1]{\hspace{\cslhangindent}#1}
+$endif$
+
+$for(header-includes)$
+$header-includes$
+$endfor$
+
+% ---------------------------------------------------------------- links and bookmarks
+\usepackage{hyperref}
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{$if(urlstyle)$$urlstyle$$else$same$endif$}
+\hypersetup{
+  hidelinks,
+  bookmarksopen=true,
+  bookmarksopenlevel=1,
+  bookmarksnumbered=true,
+$if(title-meta)$
+  pdftitle={$title-meta$},
+$endif$
+$if(author-meta)$
+  pdfauthor={$author-meta$},
+$endif$
+$if(course)$
+  pdfsubject={$course$},
+$endif$
+$if(keywords)$
+  pdfkeywords={$for(keywords)$$keywords$$sep$, $endfor$},
+$endif$
+  pdflang={ru-RU},
+  pdfcreator={H0lon: Pandoc + XeLaTeX}}
+\pdfstringdefDisableCommands{\def\hzsrc#1{}\def\hzsrcinline#1{}\def\hzunreadable#1{#1}}
+
+% ---------------------------------------------------------------- compact heading
+% Title, then one gray line (course, date), then a thin rule: no title page. The subtitle is
+% not printed: for a variation of the master it only repeats what the title says.
+\newcommand{\hzsep}{\enspace\textbullet\enspace}
+\newcommand{\hzcompacthead}{%
+  \begingroup
+  \noindent\raggedright\bfseries\Large $title$\par
+  \vspace{1pt}%
+  \noindent\footnotesize\color{black!60}%
+$if(course)$
+  $course$\hzsep{}%
+$endif$
+  $if(date)$$date$$else$\today$endif$\par
+  \vspace{2pt}\noindent{\color{black!45}\rule{\linewidth}{0.5pt}}\par
+  \endgroup
+  \vspace{3pt}}
+
+\begin{document}
+
+\hzcompacthead
+
+$for(include-before)$
+$include-before$
+
+$endfor$
+\begin{multicols}{2}
+$body$
+\end{multicols}
+
+$for(include-after)$
+$include-after$
+
+$endfor$
+\end{document}

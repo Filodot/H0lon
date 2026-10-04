@@ -159,6 +159,7 @@
         const next = $('[data-refresh="' + old.dataset.refresh + '"]', fresh);
         if (next) old.replaceWith(document.importNode(next, true));
       });
+      initVariants();
     } catch (error) {
       location.reload();
     }
@@ -229,6 +230,26 @@
     };
   }
 
+  // ---------------------------------------------------------------- variations
+
+  // The form of the «Вариации» block: the request field is for the «По запросу» preset only,
+  // and the «Другой шаблон» preset needs a template. Without this file every field is shown.
+  function initVariants() {
+    const form = $("[data-variant-form]");
+    if (!form) return;
+    const prompt = $("[data-variant-prompt]", form);
+    const template = $("select[name=template]", form);
+    const radios = $$("input[name=preset]", form);
+
+    function sync() {
+      const chosen = (radios.find((radio) => radio.checked) || {}).value;
+      if (prompt) prompt.hidden = chosen !== "custom";
+      if (template) template.required = chosen === "template";
+    }
+    radios.forEach((radio) => radio.addEventListener("change", sync));
+    sync();
+  }
+
   // ---------------------------------------------------------------- source review
 
   function initReview() {
@@ -287,5 +308,6 @@
 
   initUpload();
   initJob();
+  initVariants();
   initReview();
 })();
