@@ -110,6 +110,7 @@
       <div class="actions">
         <button class="btn btn-primary" type="submit"{% if busy or not rows %} disabled{% endif %}>Извлечь</button>
         <button class="btn" type="submit" formaction="{{ ref.url }}/plan"{% if not rows %} disabled{% endif %}>Показать план</button>
+        <button class="btn" type="submit" formaction="{{ ref.url }}/estimate"{% if not rows %} disabled{% endif %} title="Сколько займёт извлечение и сборка: распознавание речи по способам, прогоны агента">Оценить время</button>
         <button class="btn btn-quiet" type="submit" name="action" value="extract" formaction="{{ ref.url }}/queue"{% if not rows %} disabled{% endif %} title="Извлечение выполнит очередь сборок">В очередь</button>
       </div>
     </form>
@@ -136,6 +137,64 @@
       {% if plan.runs %}Прогонов агента: {{ plan.runs }}; параллельно до {{ parallel }}. Ориентир по времени: {{ plan.eta }} (3–6 минут на прогон).
       {% else %}Агент не понадобится: всё извлекается кодом или берётся из кэша.{% endif %}
     </p>
+    {% endif %}
+    {% if estimate %}
+    <div class="estimate" id="estimate">
+      <h3>Оценка</h3>
+      <p class="small">
+        Источников: {{ estimate.sources }} (к извлечению {{ estimate.to_extract }}, из кэша {{ estimate.cached }}); объём источников ≈ {{ estimate.chars }} знаков.
+        {% if estimate.agent_pages %}Страниц и кадров, которые читает агент: {{ estimate.agent_pages }}.{% endif %}
+      </p>
+      {% if estimate.asr_minutes %}
+      <h4>Распознавание речи: {{ estimate.asr_minutes }} мин звука</h4>
+      <div class="table-wrap">
+        <table class="table responsive">
+          <thead><tr><th>Способ</th><th>Модель</th><th>Скорость</th><th>Загрузка звука</th><th>Время</th><th></th></tr></thead>
+          <tbody>
+            {% for w in estimate.ways %}
+            <tr>
+              <td data-label="Способ"><span class="strong">{{ w.title }}</span></td>
+              <td data-label="Модель">{{ w.model }}</td>
+              <td data-label="Скорость"><div>{{ w.speed }}<div class="muted small">{{ w.speed_source }}</div></div></td>
+              <td data-label="Загрузка звука">{{ w.upload }}</td>
+              <td data-label="Время"><span class="strong">{{ w.time }}</span></td>
+              <td data-label="Примечание"><div class="chips">
+                {% if w.selected %}<span class="badge badge-ok">по настройкам</span>{% endif %}
+                {% if w.fastest %}<span class="badge badge-info">быстрее всех</span>{% endif %}
+                {% if not w.available %}<span class="muted small">недоступно: {{ w.reason[:1]|lower }}{{ w.reason[1:] }}</span>{% endif %}
+              </div></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="muted">Распознавание речи не требуется.</p>
+      {% endif %}
+      {% if estimate.agents %}
+      <h4>Прогоны агента (параллельно до {{ estimate.parallel }})</h4>
+      <div class="table-wrap">
+        <table class="table responsive">
+          <thead><tr><th>Этап</th><th>Прогонов</th><th>На прогон</th><th>Время</th><th>Источник времени</th></tr></thead>
+          <tbody>
+            {% for a in estimate.agents %}
+            <tr>
+              <td data-label="Этап">{{ a.title }}</td>
+              <td data-label="Прогонов">{{ a.runs }}</td>
+              <td data-label="На прогон">{{ a.run_time }}</td>
+              <td data-label="Время"><span class="strong">{{ a.time }}</span></td>
+              <td data-label="Источник времени" class="muted">{{ a.source }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="muted">Агент не понадобится: всё берётся из кэша.</p>
+      {% endif %}
+      <p class="status status-ok">Итого ориентировочно: <strong>{{ estimate.total }}</strong>{% if estimate.attention %}; ваше внимание ≈ {{ estimate.attention }} (проверка извлечения){% endif %}</p>
+      {% for n in estimate.notes %}<p class="muted small">{{ n }}</p>{% endfor %}
+    </div>
     {% endif %}
   </section>
 

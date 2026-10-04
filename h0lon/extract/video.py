@@ -1002,7 +1002,7 @@ class VideoExtractor:
         rec = ctx.source
         plan = ExtractPlan(source_id=rec.id)
         try:
-            asr.require_faster_whisper()
+            asr.require_asr(ctx.settings)
         except ExtractError as exc:
             plan.notes.append(str(exc))
         limit = time_limit_s(ctx.settings)
@@ -1042,17 +1042,21 @@ class VideoExtractor:
                 plan.notes.append("Агент отключён: речь без правки, кадры доски без записи")
             try:
                 found = asr.probe()
-                device = (
-                    "cuda"
-                    if found.cuda_ready and ctx.settings.compute.asr != "local-cpu"
-                    else "cpu"
-                )
                 model = ctx.settings.compute.asr_model
-                if device == "cpu" and not asr.explicit_model(ctx.settings):
-                    model = asr.CPU_DEFAULT_MODEL
+                if asr.wants_worker(ctx.settings, found):
+                    device, where = "colab", "в Colab"
+                else:
+                    device = (
+                        "cuda"
+                        if found.cuda_ready and ctx.settings.compute.asr != "local-cpu"
+                        else "cpu"
+                    )
+                    where = "на GPU" if device == "cuda" else "на CPU"
+                    if device == "cpu" and not asr.explicit_model(ctx.settings):
+                        model = asr.CPU_DEFAULT_MODEL
                 spm, measured = asr.estimate_seconds_per_minute(ctx.settings, device, model)
                 plan.notes.append(
-                    f"Распознавание речи ({model} на {'GPU' if device == 'cuda' else 'CPU'}): "
+                    f"Распознавание речи ({model} {where}): "
                     f"≈ {spm * minutes / 60:.0f} мин ({'по замеру' if measured else 'оценка'})"
                 )
             except Exception:
@@ -1075,7 +1079,7 @@ class VideoExtractor:
 
     def acquire(self, ctx: ExtractContext) -> dict[str, Any]:
         """Download a link, measure the duration; returns changes of the source record."""
-        asr.require_faster_whisper()
+        asr.require_asr(ctx.settings)
         rec = ctx.source
         limit = time_limit_s(ctx.settings)
         current = (rec.model_extra or {}).get("download") or {}
@@ -1146,7 +1150,7 @@ class VideoExtractor:
 
     def extract(self, ctx: ExtractContext) -> ExtractOutput:
         t0 = time.monotonic()
-        asr.require_faster_whisper()
+        asr.require_asr(ctx.settings)
         rec, sid = ctx.source, ctx.source.id
         src = self._file(ctx)
         if src is None:
@@ -1557,7 +1561,7 @@ class VideoExtractor:
         has_slides: bool,
     ) -> list[str]:
         out = list(notes)
-        where = "CUDA" if transcript.device == "cuda" else "CPU"
+        where = {"cuda": "CUDA", "colab": "Colab"}.get(transcript.device, "CPU")
         out.append(
             f"Речь распознана автоматически (faster-whisper {transcript.model}, {where}) "
             + (

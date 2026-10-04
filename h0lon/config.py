@@ -127,7 +127,12 @@ class QueueConfig(BaseModel):
 class ComputeConfig(BaseModel):
     asr: Literal["auto", "local-gpu", "local-cpu", "colab", "api"] = "auto"
     asr_model: str = "large-v3"
+    # Colab worker (h0lon/worker, colab/h0lon_worker.ipynb): its address and the token that the
+    # notebook prints. The token belongs in h0lon.toml (or H0LON_COMPUTE__COLAB_TOKEN), never in
+    # the repository. When the worker cannot be reached, recognition falls back to this PC.
     colab_url: str = ""
+    colab_token: str = ""
+    colab_fallback_local: bool = True
     # Only the first N minutes of a video or audio are downloaded and processed (debugging,
     # saving time); 0 — the whole file.
     video_max_minutes: int = Field(default=0, ge=0)

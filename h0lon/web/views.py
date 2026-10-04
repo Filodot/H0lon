@@ -665,6 +665,7 @@ def _topic_context(request: Request, ref: TopicRef) -> dict[str, Any]:
         "stage_choices": [("", "с начала, по кэшу")] + [(s, s) for s in STAGES],
         "backends": BACKEND_CHOICES,
         "plan": None,
+        "estimate": None,
     }
 
 
@@ -810,6 +811,15 @@ def extract_plan(
     runs = sum(p.agent_runs for p in plans)
     parallel = context["parallel"]
     waves = -(-runs // parallel) if runs else 0  # ceil
+    _attach_estimate(
+        state.settings,
+        ref,
+        context,
+        use_vision=not _flag(no_vision),
+        force=_flag(force),
+        backend=_backend(backend),
+        plans=list(plans),
+    )
     context["plan"] = {
         "rows": [
             {
@@ -826,6 +836,59 @@ def extract_plan(
         "pages": sum(p.pages_total for p in plans),
         "eta": f"{waves * 3}–{waves * 6} мин" if waves else "",
     }
+    return render(request, "topic.html", **context)
+
+
+def _attach_estimate(
+    settings: Any,
+    ref: TopicRef,
+    context: dict[str, Any],
+    *,
+    use_vision: bool,
+    force: bool,
+    backend: str | None,
+    plans: list[Any] | None = None,
+) -> None:
+    """The «Оценка» block of the topic page; a failure is a message, not a broken page."""
+    from h0lon.estimate import estimate_topic, to_view
+
+    try:
+        estimate = estimate_topic(
+            settings,
+            ref.path,
+            use_vision=use_vision,
+            force=force,
+            backend=backend,
+            plans=plans,
+        )
+    except Exception as exc:  # the estimate is a hint
+        context["flashes_extra"] = [
+            *context.get("flashes_extra", []),
+            flash("warn", f"Оценку времени построить не удалось: {exc}"),
+        ]
+        return
+    context["estimate"] = to_view(estimate)
+
+
+@router.post("/t/{course}/{slug}/estimate", response_class=HTMLResponse)
+def extract_estimate(
+    request: Request,
+    course: str,
+    slug: str,
+    no_vision: Annotated[str, Form()] = "",
+    force: Annotated[str, Form()] = "",
+    backend: Annotated[str, Form()] = "",
+) -> Response:
+    ref = get_topic(request, course, slug)
+    context = _topic_context(request, ref)
+    _attach_estimate(
+        request.app.state.settings,
+        ref,
+        context,
+        use_vision=not _flag(no_vision),
+        force=_flag(force),
+        backend=_backend(backend),
+    )
     return render(request, "topic.html", **context)
 
 

@@ -55,9 +55,11 @@ pause_at = 0.9                # 5-часовое окно Claude занято н
 weekly_stop = 0.95            # недельный лимит занят на столько (0–1) — очередь останавливается
 
 [compute]
-asr = "auto"                  # auto | local-gpu | local-cpu | colab | api (colab и api — позже)
+asr = "auto"                  # auto | local-gpu | local-cpu | colab | api (api — позже); auto берёт Colab, если задан colab_url, а CUDA на этом ПК нет
 asr_model = "large-v3"        # large-v3 | large-v3-turbo | medium | small …; на CPU, если ключ не задан, берётся small
-colab_url = ""
+colab_url = ""                # адрес Colab-worker (https://….trycloudflare.com), его печатает ноутбук colab/h0lon_worker.ipynb
+colab_token = ""              # токен worker из того же ноутбука; хранится только здесь, в репозиторий не попадает
+colab_fallback_local = true   # worker недоступен — распознать речь на этом ПК (false — считать это ошибкой)
 video_max_minutes = 0         # 0 — видео целиком; N — только первые N минут (отладка, экономия времени)
 
 [render]

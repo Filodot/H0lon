@@ -1224,9 +1224,86 @@ def _check_asr(settings: Settings) -> Check:
         title,
         "info",
         f"{base}; видеокарты NVIDIA с CUDA нет — распознавание на CPU (модель small, "
-        "если compute.asr_model не задана), либо Colab позже",
+        "если compute.asr_model не задана), либо Colab-worker (colab/h0lon_worker.ipynb)",
         data=data,
     )
+
+
+def _colab_health(settings: Settings) -> dict[str, Any]:
+    """`GET /health` of the Colab worker (`extract.asr.worker_health`); a seam for the tests."""
+    from h0lon.extract import asr
+
+    return asr.worker_health(settings, timeout=8.0)
+
+
+def _check_colab(settings: Settings) -> Check:
+    """The Colab worker named by `compute.colab_url`: reachable, token accepted, GPU there."""
+    from urllib.parse import urlsplit
+
+    from h0lon.extract import asr
+
+    title = "Colab-worker (распознавание речи)"
+    c = settings.compute
+    host = urlsplit(c.colab_url.strip() if "://" in c.colab_url else "//" + c.colab_url.strip())
+    shown = host.hostname or c.colab_url.strip()
+    data: dict[str, Any] = {"host": shown, "mode": c.asr, "fallback_local": c.colab_fallback_local}
+    notebook = (
+        "запустите colab/h0lon_worker.ipynb и обновите compute.colab_url и compute.colab_token"
+    )
+    after = (
+        "распознавание пойдёт на этом ПК"
+        if c.colab_fallback_local
+        else "распознавание остановится с ошибкой (compute.colab_fallback_local = false)"
+    )
+    if not c.colab_token.strip():
+        return Check(
+            "colab",
+            title,
+            "warn",
+            f"{shown}: не задан compute.colab_token (токен печатает ноутбук Colab)",
+            hint=notebook,
+            data=data,
+        )
+    try:
+        health = _colab_health(settings)
+    except asr.RemoteError as exc:
+        return Check(
+            "colab",
+            title,
+            "warn",
+            f"{shown}: {exc} — {after}",
+            hint=notebook,
+            data=data,
+        )
+    device = health.get("device")
+    gpu = health.get("gpu")
+    data.update(
+        device=device,
+        gpu=gpu,
+        model=health.get("model"),
+        protocol=health.get("protocol"),
+        busy=health.get("busy"),
+    )
+    base = (
+        f"{shown}: на связи, токен принят, "
+        + (f"GPU {gpu}" if gpu else "GPU" if device == "cuda" else "без GPU")
+        + f", модель {health.get('model') or '?'}, протокол {health.get('protocol')}"
+        + (", занят другой записью" if health.get("busy") else "")
+    )
+    unused = (
+        "" if c.asr in ("colab", "auto") else f" (но compute.asr = {c.asr}: worker не используется)"
+    )
+    if device != "cuda":
+        return Check(
+            "colab",
+            title,
+            "warn",
+            base + ": распознавание на worker будет очень медленным" + unused,
+            hint="в Colab: «Среда выполнения → Сменить тип среды выполнения → T4 GPU», "
+            "затем перезапустите ноутбук",
+            data=data,
+        )
+    return Check("colab", title, "ok", base + unused, data=data)
 
 
 # ---------------------------------------------------------------- orchestration
@@ -1251,12 +1328,13 @@ ORDER = [
     "yt-dlp",
     "gpu",
     "asr",
+    "colab",  # only when compute.colab_url is set
 ]
 
 
 def _jobs(settings: Settings, check_auth: bool) -> list[tuple[str, str, _JobFn]]:
     s = settings
-    return [
+    jobs: list[tuple[str, str, _JobFn]] = [
         ("python", "Python", lambda: _check_python(s)),
         ("config", "Конфигурация", lambda: _check_config(s)),
         ("workspaces", "Рабочие области", lambda: _check_workspaces(s)),
@@ -1274,6 +1352,9 @@ def _jobs(settings: Settings, check_auth: bool) -> list[tuple[str, str, _JobFn]]
         ("gpu", "GPU / CUDA", lambda: _check_gpu(s)),
         ("asr", "faster-whisper (распознавание речи)", lambda: _check_asr(s)),
     ]
+    if s.compute.colab_url.strip():
+        jobs.append(("colab", "Colab-worker (распознавание речи)", lambda: _check_colab(s)))
+    return jobs
 
 
 def _guarded(check_id: str, title: str, fn: _JobFn) -> Callable[[], list[Check]]:
@@ -1375,7 +1456,7 @@ def run_checks(settings: Settings, *, check_auth: bool = True) -> list[Check]:
     by_name = {"claude": finished["claude"][0], "codex": finished["codex"][0]}
     finished["agents"] = [_agents_summary(settings, by_name, check_auth)]
     _apply_requirements(settings, finished)
-    return [c for cid in ORDER for c in finished[cid]]
+    return [c for cid in ORDER if cid in finished for c in finished[cid]]
 
 
 def exit_code(checks: list[Check]) -> int:

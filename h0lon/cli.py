@@ -308,6 +308,36 @@ def extract(
     raise typer.Exit(1 if failed else 0)
 
 
+@app.command()
+def estimate(
+    ctx: typer.Context,
+    topic: Annotated[str, typer.Argument(help="Тема: путь, <курс>/<тема> или имя темы.")],
+    no_vision: Annotated[
+        bool,
+        typer.Option("--no-vision", help="Посчитать извлечение без агента (только код)."),
+    ] = False,
+    force: Annotated[
+        bool, typer.Option("--force", help="Посчитать так, будто кэш извлечения не используется.")
+    ] = False,
+    json_out: Annotated[bool, typer.Option("--json", help="Результат в JSON.")] = False,
+) -> None:
+    """Оценить время до запуска: распознавание речи по способам, прогоны агента, итог."""
+    from h0lon.estimate import estimate_topic, print_estimate
+    from h0lon.sources.ingest import IngestError
+
+    settings = _settings(ctx)
+    topic_dir = _topic(settings, topic)
+    try:
+        result = estimate_topic(settings, topic_dir, use_vision=not no_vision, force=force)
+    except (ValueError, IngestError) as exc:
+        err_console.print(f"[red]Ошибка:[/red] {escape(str(exc))}")
+        raise typer.Exit(2) from exc
+    if json_out:
+        _print_json(result.to_dict())
+    else:
+        print_estimate(result, console=console)
+
+
 @app.command("agent-test")
 def agent_test(
     ctx: typer.Context,

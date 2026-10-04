@@ -697,9 +697,11 @@ def test_device_choice(make_settings: Callable[..., Settings]) -> None:
     assert forced.device == "cpu"
     with pytest.raises(ExtractError, match=r"local-gpu.*не найдена"):
         asr.choose_device(make_settings(compute={"asr": "local-gpu"}), make_probe(cuda_devices=0))
-    for mode in ("colab", "api"):
-        with pytest.raises(ExtractError, match="пока не поддерживается"):
-            asr.choose_device(make_settings(compute={"asr": mode}), make_probe())
+    # `colab` is the worker (M6); here it is the fallback to this PC, chosen like `auto`
+    colab = asr.choose_device(make_settings(compute={"asr": "colab"}), make_probe())
+    assert (colab.device, colab.model) == ("cuda", "large-v3")
+    with pytest.raises(ExtractError, match="пока не поддерживается"):
+        asr.choose_device(make_settings(compute={"asr": "api"}), make_probe())
 
 
 def test_cuda_libraries_go_to_the_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -723,7 +725,7 @@ def test_cuda_libraries_go_to_the_path(tmp_path: Path, monkeypatch: pytest.Monke
 def test_calibration_is_remembered_and_averaged(make_settings: Callable[..., Settings]) -> None:
     settings = make_settings()
     spm, measured = asr.estimate_seconds_per_minute(settings, "cuda", "large-v3")
-    assert spm == 6.0 and not measured  # the PRD estimate
+    assert spm == 8.0 and not measured  # the starting estimate (8.1 measured in M5)
     first = asr.record_calibration(
         settings, device="cuda", model="large-v3", audio_seconds=600, wall_seconds=50
     )
