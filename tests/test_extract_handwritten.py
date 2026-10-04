@@ -795,15 +795,15 @@ def test_with_fake_claude_cli(tmp_path: Path, photo: Path, monkeypatch: pytest.M
 # ---------------------------------------------------------------- registry and pipeline
 
 
-def test_registry_supports_handwritten_and_skips_only_video_audio() -> None:
+def test_registry_supports_handwritten_and_nothing_waits_for_a_later_stage() -> None:
     res = registry.resolve_extractor("handwritten")
     assert not res.skipped and res.extractor is not None and res.reason is None
     assert res.extractor.kinds == ("handwritten",) and res.extractor.version == hw.VERSION
     assert pipeline.get_extractor("handwritten") is not None
-    assert set(registry.LATER_STAGES) == {"video", "audio"}
+    assert registry.LATER_STAGES == {}  # video and audio are extracted since M5
     for kind in ("video", "audio"):
         later = registry.resolve_extractor(kind)
-        assert later.skipped and "этап M5" in (later.reason or "")
+        assert not later.skipped and later.extractor is not None
 
 
 def add_photo(settings: Any, tmp_path: Path, photo: Path) -> Path:
@@ -851,7 +851,7 @@ def test_pipeline_extracts_handwritten_into_blocks(
     assert meta["summary"]["mode"] == "agent" and meta["extract_agent_runs"] == 1
 
 
-def test_pipeline_no_longer_skips_handwritten_but_skips_video(
+def test_pipeline_no_longer_skips_handwritten(
     tmp_path: Path, settings: Any, photo: Path, agent: FakeAgent, needs_pandoc: None
 ) -> None:
     topic = add_photo(settings, tmp_path, photo)
@@ -859,13 +859,11 @@ def test_pipeline_no_longer_skips_handwritten_but_skips_video(
     assert plans[0].pages_total == 1 and plans[0].pages_vision == 1
     assert plans[0].agent_runs == 2  # the page batch and the summary
     assert not any("M4" in n for n in plans[0].notes)
-    add_sources(settings, topic, ["https://www.youtube.com/watch?v=abcdefghijk"])
     results = pipeline.extract_topic(settings, topic, use_vision=False)
     by_id = {r.source_id: r for r in results}
     assert by_id["H1"].ok and by_id["H1"].source_md is not None
-    assert by_id["V1"].ok and by_id["V1"].source_md is None and "этап M5" in by_id["V1"].warnings[0]
     statuses = {s["id"]: s["status"] for s in load_topic(topic).sources}
-    assert statuses == {"H1": "extracted", "V1": "skipped"}
+    assert statuses == {"H1": "extracted"}
 
 
 def test_pipeline_failed_page_is_reported_not_fatal(

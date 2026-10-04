@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import os
 import re
@@ -945,7 +946,7 @@ def _check_ffmpeg(settings: Settings) -> Check:
             "ffmpeg",
             title,
             "warn",
-            "не найден — понадобится для видео и аудио (этап M5)",
+            "не найден — нужен для видео и аудио",
             hint=hint,
             data=data,
         )
@@ -955,7 +956,7 @@ def _check_ffmpeg(settings: Settings) -> Check:
             "ffmpeg",
             title,
             "warn",
-            f"{_short(ffmpeg)} не запускается: {_failure(res)} — понадобится с этапа M5",
+            f"{_short(ffmpeg)} не запускается: {_failure(res)} — нужен для видео и аудио",
             hint=hint,
             data=data,
         )
@@ -979,15 +980,33 @@ def _ytdlp_hint() -> str:
     )
 
 
+def _ytdlp_module_version() -> str | None:
+    """Version of the `yt-dlp` Python package (a main dependency; the extractor runs it as
+    `python -m yt_dlp`), None when it is not installed."""
+    try:
+        return importlib.metadata.version("yt-dlp")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
 def _check_ytdlp(settings: Settings) -> Check:
     title = "yt-dlp"
+    module_version = _ytdlp_module_version()
+    if module_version:
+        return Check(
+            "yt-dlp",
+            title,
+            "ok",
+            f"{module_version} — пакет Python (python -m yt_dlp)",
+            data={"found": True, "module": True, "version": module_version},
+        )
     path = tools.find_simple("yt-dlp")
     if path is None:
         return Check(
             "yt-dlp",
             title,
             "warn",
-            "не найден — понадобится для видео по ссылкам (этап M5)",
+            "не найден — нужен для видео по ссылкам",
             hint=_ytdlp_hint(),
             data={"found": False},
         )
@@ -998,7 +1017,7 @@ def _check_ytdlp(settings: Settings) -> Check:
             "yt-dlp",
             title,
             "warn",
-            f"{_short(path)} не запускается: {_failure(res)} — понадобится с этапа M5",
+            f"{_short(path)} не запускается: {_failure(res)} — нужен для видео по ссылкам",
             hint=_ytdlp_hint(),
             data={"found": True, "path": path},
         )
@@ -1136,6 +1155,80 @@ def _check_gpu(settings: Settings) -> Check:
     return Check("gpu", title, "info", detail, data={"gpus": gpus, "cuda": cuda})
 
 
+def _asr_probe() -> Any:
+    """What is installed for speech recognition (`extract.asr.probe`); a seam for the tests."""
+    from h0lon.extract import asr
+
+    return asr.probe()
+
+
+def _check_asr(settings: Settings) -> Check:
+    title = "faster-whisper (распознавание речи)"
+    install = "uv sync --extra video (для видеокарты NVIDIA ещё --extra video-gpu)"
+    found = _asr_probe()
+    data: dict[str, Any] = {
+        "installed": found.installed,
+        "version": found.version,
+        "ctranslate2": found.ctranslate2,
+        "cuda_devices": found.cuda_devices,
+        "cuda_missing": list(found.cuda_missing),
+    }
+    if not found.installed:
+        return Check(
+            "asr",
+            title,
+            "warn",
+            "не установлен — нужен для видео и аудио (группа зависимостей video)",
+            hint=install,
+            data=data,
+        )
+    base = f"faster-whisper {found.version}" + (
+        f", ctranslate2 {found.ctranslate2}" if found.ctranslate2 else ""
+    )
+    model = settings.compute.asr_model
+    mode = settings.compute.asr
+    if found.error:
+        return Check(
+            "asr",
+            title,
+            "warn",
+            f"{base}; не удалось проверить CUDA: {found.error[:200]}",
+            hint="проверьте установку: uv sync --extra video",
+            data=data,
+        )
+    if found.cuda_ready:
+        data["device"] = "cuda"
+        use = "" if mode != "local-cpu" else " (но compute.asr = local-cpu)"
+        return Check(
+            "asr",
+            title,
+            "ok",
+            f"{base}; CUDA: устройств {found.cuda_devices}, библиотеки cuBLAS и cuDNN найдены — "
+            f"распознавание на GPU, модель {model}{use}",
+            data=data,
+        )
+    if found.cuda_devices > 0:
+        missing = ", ".join(found.cuda_missing)
+        return Check(
+            "asr",
+            title,
+            "warn",
+            f"{base}; видеокарта есть, но не найдены библиотеки CUDA ({missing}) — "
+            "распознавание пойдёт на CPU и будет в разы медленнее",
+            hint="uv sync --extra video --extra video-gpu (пакеты nvidia-cublas-cu12, "
+            "nvidia-cudnn-cu12)",
+            data=data,
+        )
+    return Check(
+        "asr",
+        title,
+        "info",
+        f"{base}; видеокарты NVIDIA с CUDA нет — распознавание на CPU (модель small, "
+        "если compute.asr_model не задана), либо Colab позже",
+        data=data,
+    )
+
+
 # ---------------------------------------------------------------- orchestration
 
 _JobFn = Callable[[], "Check | list[Check]"]
@@ -1157,6 +1250,7 @@ ORDER = [
     "ffmpeg",
     "yt-dlp",
     "gpu",
+    "asr",
 ]
 
 
@@ -1178,6 +1272,7 @@ def _jobs(settings: Settings, check_auth: bool) -> list[tuple[str, str, _JobFn]]
         ("ffmpeg", "ffmpeg / ffprobe", lambda: _check_ffmpeg(s)),
         ("yt-dlp", "yt-dlp", lambda: _check_ytdlp(s)),
         ("gpu", "GPU / CUDA", lambda: _check_gpu(s)),
+        ("asr", "faster-whisper (распознавание речи)", lambda: _check_asr(s)),
     ]
 
 

@@ -124,6 +124,9 @@ class ComputeConfig(BaseModel):
     asr: Literal["auto", "local-gpu", "local-cpu", "colab", "api"] = "auto"
     asr_model: str = "large-v3"
     colab_url: str = ""
+    # Only the first N minutes of a video or audio are downloaded and processed (debugging,
+    # saving time); 0 — the whole file.
+    video_max_minutes: int = Field(default=0, ge=0)
 
 
 class RenderConfig(BaseModel):

@@ -32,6 +32,20 @@ dependencies = [
   "jinja2>=3.1",
   "python-multipart>=0.0.9",
   "pillow>=10",
+  "yt-dlp[default]>=2026.1",
+]
+
+[project.optional-dependencies]
+# Видео и аудио (M5): распознавание речи. Ставится `uv sync --extra video`.
+video = [
+  "faster-whisper>=1.1",
+  "numpy>=1.26",
+]
+# CUDA-библиотеки для faster-whisper/ctranslate2 4.x (CUDA 12, cuDNN 9) на видеокарте NVIDIA:
+# `uv sync --extra video --extra video-gpu`.
+video-gpu = [
+  "nvidia-cublas-cu12>=12.4,<13",
+  "nvidia-cudnn-cu12>=9.1,<10",
 ]
 
 [project.scripts]

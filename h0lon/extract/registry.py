@@ -23,13 +23,13 @@ EXTRACTORS: dict[str, tuple[str, str]] = {
     "tex": ("h0lon.extract.docs", "DocsExtractor"),
     "web": ("h0lon.extract.docs", "DocsExtractor"),
     "handwritten": ("h0lon.extract.handwritten", "HandwrittenExtractor"),
+    "video": ("h0lon.extract.video", "VideoExtractor"),
+    "audio": ("h0lon.extract.video", "VideoExtractor"),
 }
 
-# Kinds accepted by `h0lon add` whose extraction belongs to a later stage.
-LATER_STAGES: dict[str, str] = {
-    "video": "Видео — этап M5 (кадры и транскрипт), источник пока пропущен",
-    "audio": "Аудио — этап M5 (транскрипт), источник пока пропущен",
-}
+# Kinds accepted by `h0lon add` whose extraction belongs to a later stage (status `skipped`
+# with this reason). Empty since M5: video and audio are extracted by `extract/video.py`.
+LATER_STAGES: dict[str, str] = {}
 
 
 @dataclass

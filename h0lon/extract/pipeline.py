@@ -5,6 +5,12 @@ with a cache keyed by the source file, the extractor version, the prompt version
 models (the light tier of the summary; the extractor's own tier too when it is not light —
 handwriting is read by the strong tier). One failing source never stops the others;
 statuses, quality signals and cache keys go to topic.yaml through `h0lon.sources.ingest`.
+
+Two optional hooks of an extractor (both used by video and audio, `extract/video.py`):
+`cache_parts(settings, rec, topic_dir, *, use_vision, backend)` adds settings that change the
+output to the cache key; `acquire(ctx)` runs when the cache did not match, before the
+extraction, and returns changes of the source record (a link is downloaded, the duration is
+measured) — the key is then computed again for the file that was fetched.
 """
 
 from __future__ import annotations
@@ -199,8 +205,13 @@ def cache_key(
     file_sha256: str | None,
     use_vision: bool,
     backend: str | None,
+    topic_dir: Path | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """(key, its parts): file hash + extractor version + prompt versions + models."""
+    """(key, its parts): file hash + extractor version + prompt versions + models.
+
+    An extractor with `cache_parts` adds its own settings under the `extra` part (other
+    extractors keep their keys).
+    """
     agent, model = sm.light_model(settings, backend) if use_vision else (None, None)
     parts: dict[str, Any] = {
         "sha256": file_sha256 or rec.sha256 or rec.url,
@@ -213,6 +224,11 @@ def cache_key(
     own = _vision_agent(settings, extractor, backend) if use_vision else None
     if own is not None:  # light-tier extractors keep their keys
         parts["vision_backend"], parts["vision_model"] = own
+    extra_parts = getattr(extractor, "cache_parts", None)
+    if callable(extra_parts):
+        extra = extra_parts(settings, rec, topic_dir, use_vision=use_vision, backend=backend)
+        if extra:
+            parts["extra"] = extra
     digest = hashlib.sha256(json.dumps(parts, sort_keys=True).encode("utf-8")).hexdigest()
     return digest[:32], parts
 
@@ -321,7 +337,13 @@ def _plan_one(
     src = _source_file(topic_dir, rec)
     sha = _file_sha256(src) if src is not None and src.is_file() else None
     key, _parts = cache_key(
-        settings, rec, extractor, file_sha256=sha, use_vision=use_vision, backend=backend
+        settings,
+        rec,
+        extractor,
+        file_sha256=sha,
+        use_vision=use_vision,
+        backend=backend,
+        topic_dir=topic_dir,
     )
     meta = read_meta(out_dir)
     if not force and meta.get("key") == key and _outputs_exist(out_dir):
@@ -402,7 +424,13 @@ def _extract_one(
         src = _source_file(topic_dir, rec)
         sha = _file_sha256(src) if src is not None and src.is_file() else None
         key, key_parts = cache_key(
-            settings, rec, extractor, file_sha256=sha, use_vision=use_vision, backend=backend
+            settings,
+            rec,
+            extractor,
+            file_sha256=sha,
+            use_vision=use_vision,
+            backend=backend,
+            topic_dir=topic_dir,
         )
         meta = read_meta(out_dir)
         if sha and rec.sha256 and sha != rec.sha256:
@@ -414,6 +442,26 @@ def _extract_one(
             if (meta.get("summary") or {}).get("mode") != "fallback":
                 return done(_cached_result(rec, meta, out_dir, key, update_source, topic_dir, emit))
             return done(_summary_again(ctx, meta, out_dir, key, update_source, warnings, emit))
+        acquire = getattr(extractor, "acquire", None)
+        if callable(acquire):
+            changes = acquire(ctx)
+            if changes:
+                rec = rec.model_copy(update=changes)
+                ctx.source = rec
+                problem = _update(update_source, topic_dir, rec)
+                if problem:
+                    warnings.append(problem)
+                src = _source_file(topic_dir, rec)
+                sha = _file_sha256(src) if src is not None and src.is_file() else None
+                key, key_parts = cache_key(
+                    settings,
+                    rec,
+                    extractor,
+                    file_sha256=sha,
+                    use_vision=use_vision,
+                    backend=backend,
+                    topic_dir=topic_dir,
+                )
         return done(
             _run_extraction(
                 ctx,
@@ -583,7 +631,7 @@ def _run_extraction(
     ratio = bl.cyrillic_ratio(b.text for b in doc.blocks)
     quality = _merge_quality(ingest_quality, output.quality, {"cyrillic_ratio": ratio})
     units: dict[str, int | float] = dict(rec.units)
-    if output.pages_total and not units:
+    if output.pages_total and not units and rec.kind not in ("video", "audio"):
         units = {("slides" if rec.kind == "slides" else "pages"): output.pages_total}
     vision_used = output.agent_runs > 0
     agent, model = (None, None)

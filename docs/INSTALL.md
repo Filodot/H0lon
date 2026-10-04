@@ -16,7 +16,7 @@
 2. [uv, Git, Node.js](#2-uv-git-nodejs)
 3. [MiKTeX (XeLaTeX)](#3-miktex-xelatex)
 4. [Агенты: Claude Code и Codex CLI](#4-агенты-claude-code-и-codex-cli)
-5. [Необязательно: ffmpeg и yt-dlp](#5-необязательно-ffmpeg-и-yt-dlp)
+5. [Необязательно: видео и аудио — ffmpeg и faster-whisper](#5-необязательно-видео-и-аудио--ffmpeg-и-faster-whisper)
 6. [H0lon](#6-h0lon)
 7. [Где что лежит](#7-где-что-лежит)
 8. [Обновление](#8-обновление)
@@ -172,14 +172,19 @@ winget install --id OpenAI.Codex -e
 
 Как открыть `h0lon.toml` — в разделе 6.
 
-## 5. Необязательно: ffmpeg и yt-dlp
+## 5. Необязательно: видео и аудио — ffmpeg и faster-whisper
 
-Понадобятся для видео- и аудиолекций (этап M5). Сейчас H0lon их не использует, `doctor` лишь покажет, найдены ли они.
+Нужны только для видео- и аудиолекций. ffmpeg ставится в систему, yt-dlp и распознавание речи (faster-whisper) — в окружение H0lon дополнительными группами после шага 6:
 
 ```powershell
 winget install --id Gyan.FFmpeg -e
-winget install --id yt-dlp.yt-dlp -e
 ```
+
+```powershell
+uv sync --extra video --extra video-gpu
+```
+
+Группа `video-gpu` (~1,5 ГБ CUDA-библиотек) нужна для распознавания на видеокарте NVIDIA; без неё и на компьютере без NVIDIA распознавание идёт на процессоре — заметно медленнее и по умолчанию меньшей моделью. При первом распознавании faster-whisper скачает модель `large-v3` (~3 ГБ). `h0lon doctor` покажет, найдены ли ffmpeg, faster-whisper и CUDA. Ориентир: на RTX 4050 минута аудио распознаётся примерно за 8 секунд. Для пробы можно ограничить длину скачиваемого видео: `H0LON_COMPUTE__VIDEO_MAX_MINUTES=10`.
 
 ## 6. H0lon
 

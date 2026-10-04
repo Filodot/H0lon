@@ -53,9 +53,10 @@ unattended = false
 keep_awake = true
 
 [compute]
-asr = "auto"                  # local-gpu | local-cpu | colab | api (позже)
-asr_model = "large-v3"
+asr = "auto"                  # auto | local-gpu | local-cpu | colab | api (colab и api — позже)
+asr_model = "large-v3"        # large-v3 | large-v3-turbo | medium | small …; на CPU, если ключ не задан, берётся small
 colab_url = ""
+video_max_minutes = 0         # 0 — видео целиком; N — только первые N минут (отладка, экономия времени)
 
 [render]
 engine = "xelatex"            # xelatex | html

@@ -236,7 +236,8 @@ def test_dry_run_plans_only(tmp_path: Path, settings: Settings) -> None:
     assert [type(p) for p in plans] == [ExtractPlan] * 3
     d1, v1, h1 = plans
     assert d1.agent_runs == 1 and any("аннотация: 1 прогон агента claude" in n for n in d1.notes)
-    assert "M5" in v1.notes[0] and v1.agent_runs == 0
+    # video is extracted since M5: the plan does not say «skipped» (a bogus file has no length)
+    assert "M5" not in "; ".join(v1.notes) and v1.agent_runs == 1  # only the summary
     # handwriting is no longer a later stage: a plan with a batch of pages and the summary
     assert h1.pages_total == 1 and h1.pages_vision == 1 and h1.agent_runs == 2
     assert not any("M4" in n for n in h1.notes) and any("сильный уровень" in n for n in h1.notes)
@@ -262,23 +263,46 @@ def test_print_functions(tmp_path: Path, settings: Settings) -> None:
     )
     text = console.export_text()
     assert "План извлечения" in text and "Извлечение источников" in text
-    assert "готово" in text and "пропущен" in text
-    assert "Итого: готово 1, из кэша 0, пропущено 1, с ошибкой 0" in text
+    assert "готово" in text and "ошибка" in text  # V1 is not a video: ffprobe cannot read it
+    assert "Итого: готово 1, из кэша 0, пропущено 0, с ошибкой 1" in text
 
 
 # ---------------------------------------------------------------- kinds and failures
 
 
-def test_later_stage_kinds_are_skipped(tmp_path: Path, settings: Settings) -> None:
-    """Only video and audio wait for M5; handwriting is extracted (test_extract_handwritten)."""
+def test_later_stage_kinds_are_skipped(
+    tmp_path: Path, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A kind listed in `registry.LATER_STAGES` is skipped with its reason (empty since M5)."""
+    assert registry.LATER_STAGES == {}
+    monkeypatch.setitem(registry.LATER_STAGES, "video", "Видео — позже, источник пропущен")
+    monkeypatch.setitem(registry.LATER_STAGES, "audio", "Аудио — позже, источник пропущен")
     topic = make_topic(tmp_path, [("V1", "video", "v"), ("A1", "audio", "a")])
     results = pipeline.extract_topic(settings, topic)
     assert all(r.ok and r.source_md is None and not r.cached for r in results)
-    assert all("этап M5" in r.warnings[0] for r in results)
+    assert all("позже" in r.warnings[0] for r in results)
     for sid in ("V1", "A1"):
         rec = stored(topic, sid)
-        assert rec["status"] == "skipped" and "M5" in rec["error"]
-    assert set(registry.LATER_STAGES) == {"video", "audio"}
+        assert rec["status"] == "skipped" and "позже" in rec["error"]
+
+
+def test_video_and_audio_are_extracted_since_m5(
+    tmp_path: Path, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """They are not skipped: a file that is no media fails with a reason (details of the
+    extraction — test_extract_video)."""
+    from h0lon.extract import asr
+
+    monkeypatch.setattr(asr, "require_faster_whisper", lambda: None)
+    topic = make_topic(tmp_path, [("V1", "video", "не видео"), ("A1", "audio", "не аудио")])
+    results = pipeline.extract_topic(settings, topic)
+    assert [r.ok for r in results] == [False, False]
+    assert all("ffprobe" in r.errors[0] for r in results)
+    for sid in ("V1", "A1"):
+        assert stored(topic, sid)["status"] == "failed"
+    assert (
+        registry.get_extractor("video") is not None and registry.get_extractor("audio") is not None
+    )
 
 
 def test_unsupported_kind(

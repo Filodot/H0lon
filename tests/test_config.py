@@ -122,6 +122,35 @@ def test_invalid_value_rejected(tmp_path: Path) -> None:
         load_settings(path)
 
 
+def test_video_max_minutes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert Settings().compute.video_max_minutes == 0  # the whole video
+    path = _write(tmp_path / "h0lon.toml", "[compute]\nvideo_max_minutes = 15\n")
+    assert load_settings(path).compute.video_max_minutes == 15
+    monkeypatch.setenv("H0LON_COMPUTE__VIDEO_MAX_MINUTES", "10")
+    assert load_settings(path).compute.video_max_minutes == 10  # the environment wins
+    assert Settings().compute.video_max_minutes == 10
+    monkeypatch.setenv("H0LON_COMPUTE__VIDEO_MAX_MINUTES", "-5")
+    with pytest.raises(ValueError):
+        Settings()
+    bad = _write(tmp_path / "bad.toml", '[compute]\nvideo_max_minutes = "много"\n')
+    monkeypatch.delenv("H0LON_COMPUTE__VIDEO_MAX_MINUTES")
+    with pytest.raises(ValueError):
+        load_settings(bad)
+
+
+def test_asr_model_counts_as_set_only_when_the_user_set_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # the extractor takes the small model on the CPU unless the model was named explicitly
+    assert "asr_model" not in Settings().compute.model_fields_set
+    path = _write(tmp_path / "h0lon.toml", '[compute]\nasr_model = "large-v3"\n')
+    assert "asr_model" in load_settings(path).compute.model_fields_set
+    other = _write(tmp_path / "other.toml", '[compute]\nasr = "auto"\n')
+    assert "asr_model" not in load_settings(other).compute.model_fields_set
+    monkeypatch.setenv("H0LON_COMPUTE__ASR_MODEL", "medium")
+    assert "asr_model" in Settings().compute.model_fields_set
+
+
 def test_load_explicit_missing_file(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         load_settings(tmp_path / "nope.toml")

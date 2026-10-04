@@ -13,6 +13,7 @@ from rich.console import Console
 
 from h0lon import doctor, procutil, tools
 from h0lon.doctor import Check, exit_code, print_report, run_checks
+from h0lon.extract import asr
 
 EXPECTED_IDS = [
     "python",
@@ -32,6 +33,7 @@ EXPECTED_IDS = [
     "ffmpeg",
     "yt-dlp",
     "gpu",
+    "asr",
 ]
 VALID_STATUSES = {"ok", "warn", "missing", "error", "info"}
 
@@ -100,6 +102,11 @@ class FakeMachine:
         self.calls: list[tuple[list[str], dict[str, str] | None]] = []
         self.timeouts: list[tuple[str, float | None]] = []
         self.packages = ["fontspec.sty", "polyglossia.sty", "mdframed.sty"]
+        # what is installed for the speech recognition (faster-whisper and CUDA for it)
+        self.asr = asr.AsrProbe(
+            installed=True, version="1.2.1", ctranslate2="4.8.2", cuda_devices=1
+        )
+        self.ytdlp_module: str | None = None  # the Python package yt-dlp (None: not installed)
         self.missing_tex: list[str] = []  # files kpsewhich does not find (.sty or font files)
         self.fonts: dict[str, str] | None = {
             "times new roman": "system",
@@ -155,6 +162,8 @@ def fake(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeMachine:
             name=s.render.template, title="Fake", dir=m.root, latex_packages=m.packages
         ),
     )
+    monkeypatch.setattr(doctor, "_asr_probe", lambda: m.asr)
+    monkeypatch.setattr(doctor, "_ytdlp_module_version", lambda: m.ytdlp_module)
     monkeypatch.setattr(doctor, "_installed_font_families", lambda: (m.fonts, "fake"))
     monkeypatch.setattr(doctor, "_windows_font_dirs", lambda: [m.root / "winfonts"])
     return m
@@ -188,6 +197,7 @@ def test_all_found_exit_zero(fake: FakeMachine, settings) -> None:
     assert c["latex-packages"].status == "ok"
     assert c["fonts"].status == "ok"
     assert c["gpu"].status == "info"
+    assert c["asr"].status == "ok" and not c["asr"].required
 
 
 def test_no_pandoc_exit_one(fake: FakeMachine, settings) -> None:
@@ -609,7 +619,8 @@ def test_media_tools_missing_are_warnings(fake: FakeMachine, settings) -> None:
     fake.tools["yt-dlp"] = None
     checks = run_checks(settings)
     c = by_id(checks)
-    assert c["ffmpeg"].status == "warn" and "M5" in c["ffmpeg"].detail
+    assert c["ffmpeg"].status == "warn" and "для видео и аудио" in c["ffmpeg"].detail
+    assert "M5" not in c["ffmpeg"].detail and "M5" not in c["yt-dlp"].detail
     assert c["yt-dlp"].status == "warn" and c["yt-dlp"].hint
     assert exit_code(checks) == 0
 
@@ -630,6 +641,16 @@ def test_broken_media_tools_are_not_ok(fake: FakeMachine, settings) -> None:
     assert exit_code(checks) == 0
 
 
+def test_ytdlp_python_package_is_enough(fake: FakeMachine, settings) -> None:
+    # the extractor runs `python -m yt_dlp`: the package counts even without an exe on PATH
+    fake.tools["yt-dlp"] = None
+    fake.ytdlp_module = "2026.8.19"
+    c = by_id(run_checks(settings))["yt-dlp"]
+    assert c.status == "ok" and "2026.8.19" in c.detail and "python -m yt_dlp" in c.detail
+    assert c.data["module"] is True and c.data["version"] == "2026.8.19"
+    assert not any(Path(args[0]).stem.lower() == "yt-dlp" for args, _env in fake.calls)
+
+
 def test_ffprobe_missing(fake: FakeMachine, settings) -> None:
     fake.tools["ffprobe"] = None
     ff = by_id(run_checks(settings))["ffmpeg"]
@@ -647,6 +668,57 @@ def test_no_gpu(fake: FakeMachine, settings) -> None:
     fake.tools["nvidia-smi"] = None
     gpu = by_id(run_checks(settings))["gpu"]
     assert gpu.status == "info" and "CPU или в Colab" in gpu.detail
+
+
+def test_asr_ready_on_gpu(fake: FakeMachine, settings) -> None:
+    c = by_id(run_checks(settings))["asr"]
+    assert c.status == "ok" and not c.required and c.hint is None
+    assert "faster-whisper 1.2.1" in c.detail and "ctranslate2 4.8.2" in c.detail
+    assert "распознавание на GPU, модель large-v3" in c.detail
+    assert c.data["installed"] and c.data["cuda_devices"] == 1 and c.data["cuda_missing"] == []
+
+
+def test_asr_not_installed_is_a_warning(fake: FakeMachine, settings) -> None:
+    fake.asr = asr.AsrProbe(installed=False)
+    checks = run_checks(settings)
+    c = by_id(checks)["asr"]
+    assert c.status == "warn" and not c.required and "группа зависимостей video" in c.detail
+    assert "uv sync --extra video" in (c.hint or "") and "--extra video-gpu" in (c.hint or "")
+    assert exit_code(checks) == 0
+
+
+def test_asr_gpu_without_cuda_libraries(fake: FakeMachine, settings) -> None:
+    fake.asr = asr.AsrProbe(
+        installed=True,
+        version="1.2.1",
+        ctranslate2="4.8.2",
+        cuda_devices=1,
+        cuda_missing=["cublas64_12.dll", "cudnn_ops64_9.dll"],
+    )
+    checks = run_checks(settings)
+    c = by_id(checks)["asr"]
+    assert c.status == "warn" and not c.required
+    assert "cublas64_12.dll, cudnn_ops64_9.dll" in c.detail and "на CPU" in c.detail
+    assert "--extra video-gpu" in (c.hint or "") and c.data["cuda_missing"][0] == "cublas64_12.dll"
+    assert exit_code(checks) == 0
+
+
+def test_asr_without_a_gpu_is_info(fake: FakeMachine, settings) -> None:
+    fake.asr = asr.AsrProbe(installed=True, version="1.2.1", ctranslate2="4.8.2", cuda_devices=0)
+    c = by_id(run_checks(settings))["asr"]
+    assert c.status == "info" and "на CPU" in c.detail and "small" in c.detail
+
+
+def test_asr_probe_error_is_a_warning(fake: FakeMachine, settings) -> None:
+    fake.asr = asr.AsrProbe(installed=True, version="1.2.1", error="ImportError: DLL load failed")
+    c = by_id(run_checks(settings))["asr"]
+    assert c.status == "warn" and "не удалось проверить CUDA" in c.detail
+    assert "DLL load failed" in c.detail
+
+
+def test_asr_local_cpu_mode_is_mentioned(fake: FakeMachine, make_settings) -> None:
+    c = by_id(run_checks(make_settings(compute={"asr": "local-cpu"})))["asr"]
+    assert c.status == "ok" and "compute.asr = local-cpu" in c.detail
 
 
 # ---------------------------------------------------------------- config / workspaces
